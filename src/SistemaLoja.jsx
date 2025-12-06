@@ -2929,211 +2929,279 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
   };
   // ======== FIM DA PARTE 3/4 ========
   // ========================================================================
-  // TELA DE PROMISSÓRIAS
-  // ========================================================================
-  const TelaPromissorias = () => {
-    const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
+// ========================================================================
+// TELA DE PROMISSÓRIAS
+// ========================================================================
+const TelaPromissorias = () => {
+  const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
 
-    const listaFiltrada = promissorias.filter((p) =>
-      mostrarSomenteAtrasadas ? p.parcelasAtrasadas > 0 : true,
+  // data de hoje em formato YYYY-MM-DD (igual do banco)
+  const hojeIso = new Date().toISOString().split('T')[0];
+
+  // Normaliza qualquer formato de data para YYYY-MM-DD
+  const normalizarData = (valor) => {
+    if (!valor) return null;
+
+    // Se já for Date
+    if (valor instanceof Date) {
+      return valor.toISOString().split('T')[0];
+    }
+
+    if (typeof valor === 'string') {
+      let s = valor.trim();
+
+      // Já está em formato ISO
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        return s.slice(0, 10);
+      }
+
+      // Formato brasileiro dd/mm/aaaa
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+        const [dia, mes, ano] = s.split('/');
+        return `${ano}-${mes}-${dia}`;
+      }
+
+      // Último recurso: tentar Date normal
+      try {
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toISOString().split('T')[0];
+        }
+      } catch (e) {
+        // ignora
+      }
+    }
+
+    return null;
+  };
+
+  // Regra central: quando uma promissória é considerada "atrasada"
+  const ehAtrasada = (p) => {
+    const parcelasAtras = Number(p.parcelasAtrasadas || 0);
+
+    // 1) Se o usuário controlar manualmente parcelas atrasadas, respeitamos isso
+    if (parcelasAtras > 0) return true;
+
+    // 2) Se a data de início já passou e ainda não está quitada/paga, também é atrasada
+    const dataIniNorm = normalizarData(p.dataInicio);
+    if (!dataIniNorm) return false;
+
+    const status = (p.status || '').toUpperCase();
+    const naoQuitada =
+      status !== 'QUITADO' &&
+      status !== 'PAGO' &&
+      status !== 'PAGA' &&
+      status !== 'LIQUIDADO';
+
+    return dataIniNorm < hojeIso && naoQuitada;
+  };
+
+  // Aplica o filtro da checkbox
+  const listaFiltrada = promissorias.filter((p) =>
+    mostrarSomenteAtrasadas ? ehAtrasada(p) : true,
+  );
+
+  const toggleSelecao = async (index) => {
+    const prom = promissorias[index];
+    if (!prom) return;
+
+    const novoSelecionado = !prom.selecionado;
+
+    // atualiza visualmente
+    setPromissorias((lista) =>
+      lista.map((p, idx) =>
+        idx === index ? { ...p, selecionado: novoSelecionado } : p,
+      ),
     );
 
-    const toggleSelecao = async (index) => {
-      const prom = promissorias[index];
-      if (!prom) return;
+    // atualiza na nuvem, se tiver id
+    if (prom.id) {
+      try {
+        const { error } = await supabase
+          .from('promissorias')
+          .update({ selecionado: novoSelecionado })
+          .eq('id', prom.id);
 
-      const novoSelecionado = !prom.selecionado;
-
-      // atualiza visualmente
-      setPromissorias((lista) =>
-        lista.map((p, idx) =>
-          idx === index ? { ...p, selecionado: novoSelecionado } : p,
-        ),
-      );
-
-      // atualiza na nuvem, se tiver id
-      if (prom.id) {
-        try {
-          const { error } = await supabase
-            .from('promissorias')
-            .update({ selecionado: novoSelecionado })
-            .eq('id', prom.id);
-
-          if (error) {
-            console.error('Erro ao atualizar seleção da promissória:', error);
-          }
-        } catch (e) {
-          console.error('Erro inesperado ao atualizar seleção da promissória:', e);
+        if (error) {
+          console.error('Erro ao atualizar seleção da promissória:', error);
         }
+      } catch (e) {
+        console.error('Erro inesperado ao atualizar seleção da promissória:', e);
       }
-    };
+    }
+  };
 
-    const enviarEmails = () => {
-      const selecionados = promissorias.filter((p) => p.selecionado);
-      if (selecionados.length === 0) {
-        alert('Nenhuma promissória selecionada.');
-        return;
-      }
-      const emails = selecionados.map((p) => `${p.cliente} <${p.email}>`).join('\n');
-      alert(
-        `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`,
-      );
-    };
-
-    const consolidadoPorCliente = Object.values(
-      listaFiltrada.reduce((acc, p) => {
-        if (!acc[p.cliente]) {
-          acc[p.cliente] = {
-            cliente: p.cliente,
-            email: p.email,
-            total: 0,
-            atrasadas: 0,
-          };
-        }
-        acc[p.cliente].total += p.valor || 0;
-        acc[p.cliente].atrasadas += p.parcelasAtrasadas || 0;
-        return acc;
-      }, {}),
+  const enviarEmails = () => {
+    const selecionados = promissorias.filter((p) => p.selecionado);
+    if (selecionados.length === 0) {
+      alert('Nenhuma promissória selecionada.');
+      return;
+    }
+    const emails = selecionados.map((p) => `${p.cliente} <${p.email}>`).join('\n');
+    alert(
+      `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`,
     );
+  };
 
-    return (
-      <div className="p-6 space-y-6" style={appStyle}>
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
-              <p className="text-sm text-gray-600">
-                Selecione as vendas para contato e acompanhe quem está com parcelas
-                atrasadas.
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={mostrarSomenteAtrasadas}
-                  onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
-                />
-                Mostrar apenas com parcelas em atraso
-              </label>
-              <button
-                onClick={enviarEmails}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
-              >
-                <Mail className="w-4 h-4" />
-                Enviar e-mails selecionados
-              </button>
-            </div>
-          </div>
+  // Consolidação só com o que está na lista filtrada
+  const consolidadoPorCliente = Object.values(
+    listaFiltrada.reduce((acc, p) => {
+      if (!acc[p.cliente]) {
+        acc[p.cliente] = {
+          cliente: p.cliente,
+          email: p.email,
+          total: 0,
+          atrasadas: 0,
+        };
+      }
+      acc[p.cliente].total += p.valor || 0;
+      acc[p.cliente].atrasadas += Number(p.parcelasAtrasadas || 0);
+      return acc;
+    }, {}),
+  );
 
-          {/* Tabela de promissórias */}
-          <div className="overflow-x-auto text-sm mb-6">
-            <table className="w-full">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-3 py-2 text-center">
-                    <input type="checkbox" disabled />
-                  </th>
-                  <th className="px-3 py-2 text-left">Nr Venda</th>
-                  <th className="px-3 py-2 text-left">Cliente</th>
-                  <th className="px-3 py-2 text-left">E-mail</th>
-                  <th className="px-3 py-2 text-right">Valor</th>
-                  <th className="px-3 py-2 text-left">Data Início</th>
-                  <th className="px-3 py-2 text-center">Parcelas</th>
-                  <th className="px-3 py-2 text-center">Em atraso</th>
-                  <th className="px-3 py-2 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaFiltrada.map((prom, idx) => {
-                  const indexOriginal = promissorias.findIndex(
-                    (p) => p.nrVenda === prom.nrVenda && p.cliente === prom.cliente,
-                  );
-                  return (
-                    <tr key={idx} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={prom.selecionado || false}
-                          onChange={() => toggleSelecao(indexOriginal)}
-                        />
-                      </td>
-                      <td className="px-3 py-2 font-semibold">{prom.nrVenda}</td>
-                      <td className="px-3 py-2">{prom.cliente}</td>
-                      <td className="px-3 py-2 text-xs text-gray-600">{prom.email}</td>
-                      <td className="px-3 py-2 text-right font-semibold">
-                        {formatarReal(prom.valor)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
-                      </td>
-                      <td className="px-3 py-2 text-center">{prom.parcelas}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            prom.parcelasAtrasadas > 0
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}
-                        >
-                          {prom.parcelasAtrasadas}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            prom.status === 'ABERTO'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-blue-100 text-blue-800'
-                          }`}
-                        >
-                          {prom.status}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Consolidação por cliente */}
+  return (
+    <div className="p-6 space-y-6" style={appStyle}>
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
           <div>
-            <h3 className="text-lg font-semibold mb-2">
-              Consolidação por Cliente (somente filtrados acima)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              {consolidadoPorCliente.map((c, idx) => (
-                <div
-                  key={idx}
-                  className="border rounded-lg p-3 bg-gray-50 flex justify-between items-center"
-                >
-                  <div>
-                    <div className="font-semibold">{c.cliente}</div>
-                    <div className="text-xs text-gray-600">{c.email}</div>
+            <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
+            <p className="text-sm text-gray-600">
+              Selecione as vendas para contato e acompanhe quem está com parcelas
+              atrasadas.
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={mostrarSomenteAtrasadas}
+                onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
+              />
+              Mostrar apenas com parcelas em atraso
+            </label>
+            <button
+              onClick={enviarEmails}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
+            >
+              <Mail className="w-4 h-4" />
+              Enviar e-mails selecionados
+            </button>
+          </div>
+        </div>
+
+        {/* Tabela de promissórias */}
+        <div className="overflow-x-auto text-sm mb-6">
+          <table className="w-full">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="px-3 py-2 text-center">
+                  <input type="checkbox" disabled />
+                </th>
+                <th className="px-3 py-2 text-left">Nr Venda</th>
+                <th className="px-3 py-2 text-left">Cliente</th>
+                <th className="px-3 py-2 text-left">E-mail</th>
+                <th className="px-3 py-2 text-right">Saldo Devedor</th>
+                <th className="px-3 py-2 text-left">
+                  Data inicial de Pagamento
+                </th>
+                <th className="px-3 py-2 text-center">Parcelas</th>
+                <th className="px-3 py-2 text-center">Parcelas em atraso</th>
+                <th className="px-3 py-2 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listaFiltrada.map((prom, idx) => {
+                const indexOriginal = promissorias.findIndex(
+                  (p) => p.nrVenda === prom.nrVenda && p.cliente === prom.cliente,
+                );
+                const atrasada = ehAtrasada(prom);
+
+                return (
+                  <tr key={idx} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={prom.selecionado || false}
+                        onChange={() => toggleSelecao(indexOriginal)}
+                      />
+                    </td>
+                    <td className="px-3 py-2 font-semibold">{prom.nrVenda}</td>
+                    <td className="px-3 py-2">{prom.cliente}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{prom.email}</td>
+                    <td className="px-3 py-2 text-right font-semibold">
+                      {formatarReal(prom.valor)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
+                    </td>
+                    <td className="px-3 py-2 text-center">{prom.parcelas}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          atrasada
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}
+                      >
+                        {prom.parcelasAtrasadas || 0}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          prom.status === 'ABERTO'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {prom.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Consolidação por cliente */}
+        <div>
+          <h3 className="text-lg font-semibold mb-2">
+            Consolidação por Cliente (somente filtrados acima)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            {consolidadoPorCliente.map((c, idx) => (
+              <div
+                key={idx}
+                className="border rounded-lg p-3 bg-gray-50 flex justify-between items-center"
+              >
+                <div>
+                  <div className="font-semibold">{c.cliente}</div>
+                  <div className="text-xs text-gray-600">{c.email}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-gray-500">Total em aberto</div>
+                  <div className="font-bold text-blue-700">
+                    {formatarReal(c.total)}
                   </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">Total em aberto</div>
-                    <div className="font-bold text-blue-700">
-                      {formatarReal(c.total)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Parc. em atraso: {c.atrasadas}
-                    </div>
+                  <div className="text-xs text-gray-500">
+                    Parc. em atraso: {c.atrasadas}
                   </div>
                 </div>
-              ))}
-              {consolidadoPorCliente.length === 0 && (
-                <div className="text-xs text-gray-500">
-                  Nenhuma promissória encontrada com os filtros atuais.
-                </div>
-              )}
-            </div>
+              </div>
+            ))}
+            {consolidadoPorCliente.length === 0 && (
+              <div className="text-xs text-gray-500">
+                Nenhuma promissória encontrada com os filtros atuais.
+              </div>
+            )}
           </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   // ========================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
