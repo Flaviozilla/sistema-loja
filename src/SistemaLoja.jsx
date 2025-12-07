@@ -1348,34 +1348,33 @@ const SistemaLoja = () => {
       local: 'LOJA',
       parcelas: 1,
       inicioPagamento: '',
-      fotoUrl: '', // pré-visualização da foto
     });
 
-    // Lista de produtos vem da tabela de produtos (não mais do estoque)
-    const produtosLista = produtos.map((p) => ({
+    // Agora a lista vem direto da TABELA DE PRODUTOS
+    const produtosDisponiveis = produtos.map((p) => ({
       codProduto: p.codProduto,
-      nome: p.nome,
+      produto: p.nome,
       fornecedor: p.fornecedor || '',
       valorUnitario: p.valorUnitario || 0,
       fotoUrl: p.fotoUrl || '',
     }));
 
+    // Encontrar info do produto (por código ou nome) usando a tabela de produtos
     const encontrarInfoProduto = (cod, nome) => {
       let prod = null;
 
       if (cod) {
-        prod = produtosLista.find((p) => p.codProduto === cod);
+        prod = produtos.find((p) => p.codProduto === cod);
       }
       if (!prod && nome) {
-        prod = produtosLista.find((p) => p.nome === nome);
+        prod = produtos.find((p) => p.nome === nome);
       }
-
       if (!prod) return null;
 
       return {
         codProduto: prod.codProduto,
         produto: prod.nome,
-        fornecedor: prod.fornecedor,
+        fornecedor: prod.fornecedor || '',
         valorUnitario: prod.valorUnitario || 0,
         fotoUrl: prod.fotoUrl || '',
       };
@@ -1389,14 +1388,12 @@ const SistemaLoja = () => {
     const atualizarVendaComProduto = (info) => {
       setNovaVenda((anterior) => {
         const atual = { ...anterior };
-
         atual.codProduto = info.codProduto;
         atual.produto = info.produto;
         atual.fornecedor = info.fornecedor || '';
-        atual.fotoUrl = info.fotoUrl || '';
 
         const qtdeNum = Number(atual.qtde) || 0;
-        if (info.valorUnitario && qtdeNum > 0) {
+        if (qtdeNum > 0 && info.valorUnitario > 0) {
           atual.valorBruto = info.valorUnitario * qtdeNum;
         }
 
@@ -1436,7 +1433,7 @@ const SistemaLoja = () => {
       setNovaVenda((anterior) => {
         let atual = { ...anterior, [campo]: valor };
 
-        // Data
+        // Data → atualiza Nº da venda e início de pagamento (se crédito)
         if (campo === 'data') {
           atual.nrVenda = gerarNumeroVenda(atual.data);
 
@@ -1456,39 +1453,36 @@ const SistemaLoja = () => {
           }
         }
 
-        // Quantidade
+        // Quantidade → recalcula VALOR BRUTO com base no valor unitário cadastrado
         if (campo === 'qtde') {
           const infoProd = encontrarInfoProduto(atual.codProduto, atual.produto);
           const qtdeNum = Number(valor) || 0;
-          if (infoProd && infoProd.valorUnitario && qtdeNum > 0) {
+          if (infoProd && infoProd.valorUnitario > 0 && qtdeNum > 0) {
             atual.valorBruto = infoProd.valorUnitario * qtdeNum;
           }
         }
 
-        // Números que alteram o valor final
-        if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
-          atual.valorLiq = calcularValorLiquido(atual);
-        }
-
-        // Quando trocar código ou nome, puxar fornecedor, valor unitário e foto
+        // Se mudou código ou nome, tenta puxar informações do produto
         if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
           const info = encontrarInfoProduto(
             campo === 'codProduto' ? valor : atual.codProduto,
             campo === 'produto' ? valor : atual.produto,
           );
-
           if (info) {
             atual.codProduto = info.codProduto;
             atual.produto = info.produto;
             atual.fornecedor = info.fornecedor || atual.fornecedor;
-            atual.fotoUrl = info.fotoUrl || '';
 
             const qtdeNum = Number(atual.qtde) || 0;
-            if (info.valorUnitario && qtdeNum > 0) {
+            if (info.valorUnitario > 0 && qtdeNum > 0) {
               atual.valorBruto = info.valorUnitario * qtdeNum;
             }
-            atual.valorLiq = calcularValorLiquido(atual);
           }
+        }
+
+        // Sempre que mexer em valorBruto / desconto / juros / qtde → recalcula valor final
+        if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
+          atual.valorLiq = calcularValorLiquido(atual);
         }
 
         return atual;
@@ -1529,7 +1523,7 @@ const SistemaLoja = () => {
         data: lancVenda.data,
       });
 
-      // 3) Se for promissória, registra também em promissórias
+      // 3) Se for promissória, registra na tabela de promissórias (Supabase + local)
       if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         const promBase = {
           nrVenda: lancVenda.nrVenda,
@@ -1654,9 +1648,14 @@ const SistemaLoja = () => {
         local: 'LOJA',
         parcelas: 1,
         inicioPagamento: '',
-        fotoUrl: '',
       });
     };
+
+    // Produto selecionado (para mostrar foto)
+    const produtoSelecionadoInfo = encontrarInfoProduto(
+      novaVenda.codProduto,
+      novaVenda.produto,
+    );
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
@@ -1667,164 +1666,223 @@ const SistemaLoja = () => {
             automaticamente.
           </p>
 
-          {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
+          <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6 items-start">
+            {/* FORMULÁRIO */}
             <div>
-              <label className="block font-semibold mb-1">Data</label>
-              <input
-                type="date"
-                value={novaVenda.data}
-                onChange={(e) => handleChange('data', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Nr Venda</label>
-              <input
-                type="text"
-                value={novaVenda.nrVenda}
-                onChange={(e) => handleChange('nrVenda', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-                placeholder="Gerado automaticamente"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Forma de pagamento</label>
-              <select
-                value={novaVenda.forma}
-                onChange={(e) => handleChange('forma', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
+              {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Data</label>
+                  <input
+                    type="date"
+                    value={novaVenda.data}
+                    onChange={(e) => handleChange('data', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Nr Venda</label>
+                  <input
+                    type="text"
+                    value={novaVenda.nrVenda}
+                    onChange={(e) => handleChange('nrVenda', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Gerado automaticamente"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Forma de pagamento</label>
+                  <select
+                    value={novaVenda.forma}
+                    onChange={(e) => handleChange('forma', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="PIX">PIX</option>
+                    <option value="DEBITO">Débito</option>
+                    <option value="CREDITO">Crédito</option>
+                    <option value="DINHEIRO">Dinheiro</option>
+                    <option value="PROMISSORIA">Promissória</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Qtd Parcelas</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={novaVenda.parcelas}
+                    onChange={(e) => handleChange('parcelas', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">
+                    Data inicial de pagamento
+                  </label>
+                  <input
+                    type="date"
+                    value={novaVenda.inicioPagamento}
+                    onChange={(e) => handleChange('inicioPagamento', e.target.value)}
+                    disabled={novaVenda.forma === 'CREDITO'}
+                    className={`w-full px-3 py-2 border rounded-lg ${
+                      novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
+                    }`}
+                  />
+                  {novaVenda.forma === 'CREDITO' && (
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Para crédito, o início é calculado para o dia 5 do mês seguinte.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Linha 2 - Cliente */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Cliente</label>
+                  <input
+                    type="text"
+                    value={novaVenda.cliente}
+                    onChange={(e) => handleChange('cliente', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={novaVenda.email}
+                    onChange={(e) => handleChange('email', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Telefone</label>
+                  <input
+                    type="text"
+                    value={novaVenda.telefone}
+                    onChange={(e) => handleChange('telefone', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Linha 3 - Produto */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Código Produto</label>
+                  <select
+                    value={novaVenda.codProduto}
+                    onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Selecione...</option>
+                    {produtosDisponiveis.map((p) => (
+                      <option key={p.codProduto} value={p.codProduto}>
+                        {p.codProduto}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Produto</label>
+                  <select
+                    value={novaVenda.produto}
+                    onChange={(e) => selecionarProdutoPorNome(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Selecione...</option>
+                    {produtosDisponiveis.map((p) => (
+                      <option key={p.codProduto} value={p.produto}>
+                        {p.produto}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Fornecedor</label>
+                  <input
+                    type="text"
+                    value={novaVenda.fornecedor}
+                    onChange={(e) => handleChange('fornecedor', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Quantidade</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={novaVenda.qtde}
+                    onChange={(e) => handleChange('qtde', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Linha 4 - Valores */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.valorBruto}
+                    onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Desconto (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.desconto}
+                    onChange={(e) => handleChange('desconto', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Juros (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.juros}
+                    onChange={(e) => handleChange('juros', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">
+                    Valor final da venda (R$)
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={formatarReal(calcularValorLiquido(novaVenda))}
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-100"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={registrarVenda}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
               >
-                <option value="PIX">PIX</option>
-                <option value="DEBITO">Débito</option>
-                <option value="CREDITO">Crédito</option>
-                <option value="DINHEIRO">Dinheiro</option>
-                <option value="PROMISSORIA">Promissória</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Qtd Parcelas</label>
-              <input
-                type="number"
-                min={1}
-                value={novaVenda.parcelas}
-                onChange={(e) => handleChange('parcelas', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Data inicial do pagamento</label>
-              <input
-                type="date"
-                value={novaVenda.inicioPagamento}
-                onChange={(e) => handleChange('inicioPagamento', e.target.value)}
-                disabled={novaVenda.forma === 'CREDITO'}
-                className={`w-full px-3 py-2 border rounded-lg ${
-                  novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
-                }`}
-              />
-              {novaVenda.forma === 'CREDITO' && (
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Para crédito, o início é calculado para o dia 5 do mês seguinte.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Linha 2 - Cliente */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Cliente</label>
-              <input
-                type="text"
-                value={novaVenda.cliente}
-                onChange={(e) => handleChange('cliente', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">E-mail</label>
-              <input
-                type="email"
-                value={novaVenda.email}
-                onChange={(e) => handleChange('email', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Telefone</label>
-              <input
-                type="text"
-                value={novaVenda.telefone}
-                onChange={(e) => handleChange('telefone', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-          </div>
-
-          {/* Linha 3 - Produto + Pré-visualização da foto (lado direito) */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4 text-sm">
-            {/* Campos do produto */}
-            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block font-semibold mb-1">Código Produto</label>
-                <select
-                  value={novaVenda.codProduto}
-                  onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Selecione...</option>
-                  {produtosLista.map((p) => (
-                    <option key={p.codProduto} value={p.codProduto}>
-                      {p.codProduto}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Produto</label>
-                <select
-                  value={novaVenda.produto}
-                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Selecione...</option>
-                  {produtosLista.map((p) => (
-                    <option key={p.codProduto} value={p.nome}>
-                      {p.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Fornecedor</label>
-                <input
-                  type="text"
-                  value={novaVenda.fornecedor}
-                  onChange={(e) => handleChange('fornecedor', e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Quantidade</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={novaVenda.qtde}
-                  onChange={(e) => handleChange('qtde', Number(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-lg"
-                />
-              </div>
+                Registrar Venda
+              </button>
             </div>
 
-            {/* Pré-visualização da foto */}
-            <div className="lg:col-span-2">
-              <div className="text-sm font-medium mb-1">Foto do produto</div>
+            {/* PRÉ-VISUALIZAÇÃO DA FOTO DO PRODUTO */}
+            <div>
+              <div className="text-sm font-medium mb-1">Pré-visualização do produto</div>
               <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
-                {novaVenda.fotoUrl ? (
+                {produtoSelecionadoInfo && produtoSelecionadoInfo.fotoUrl ? (
                   <img
-                    src={novaVenda.fotoUrl}
+                    src={produtoSelecionadoInfo.fotoUrl}
                     alt="Foto do produto"
                     className="w-full h-full object-contain"
                     onError={(e) => {
@@ -1834,67 +1892,13 @@ const SistemaLoja = () => {
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
-                    Ao selecionar um produto com foto cadastrada, a imagem aparecerá aqui.
+                    A imagem cadastrada para o produto aparecerá aqui após selecionar o
+                    código ou o nome.
                   </span>
                 )}
               </div>
             </div>
           </div>
-
-          {/* Linha 4 - Valores */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={novaVenda.valorBruto}
-                onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Desconto (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={novaVenda.desconto}
-                onChange={(e) => handleChange('desconto', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Juros (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={novaVenda.juros}
-                onChange={(e) => handleChange('juros', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">
-                Valor final da venda (R$)
-              </label>
-              <input
-                type="text"
-                disabled
-                value={formatarReal(calcularValorLiquido(novaVenda))}
-                className="w-full px-3 py-2 border rounded-lg bg-gray-100"
-              />
-            </div>
-          </div>
-
-          <button
-            onClick={registrarVenda}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
-          >
-            Registrar Venda
-          </button>
         </div>
       </div>
     );
