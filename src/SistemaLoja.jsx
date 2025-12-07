@@ -1348,6 +1348,7 @@ const SistemaLoja = () => {
       local: 'LOJA',
       parcelas: 1,
       inicioPagamento: '',
+      fotoUrl: '', // pré-visualização da foto do produto
     });
 
     // Lista de produtos disponíveis no ESTOQUE (únicos por código)
@@ -1384,12 +1385,14 @@ const SistemaLoja = () => {
       const prodCad = produtos.find((p) => p.codProduto === item.codProduto);
       const valorUnitario =
         prodCad && prodCad.valorUnitario ? prodCad.valorUnitario : 0;
+      const fotoUrl = prodCad && prodCad.fotoUrl ? prodCad.fotoUrl : '';
 
       return {
         codProduto: item.codProduto,
         produto: item.produto,
         fornecedor: item.fornecedor,
         valorUnitario,
+        fotoUrl,
       };
     };
 
@@ -1404,6 +1407,7 @@ const SistemaLoja = () => {
         atual.codProduto = info.codProduto;
         atual.produto = info.produto;
         atual.fornecedor = info.fornecedor || '';
+        atual.fotoUrl = info.fotoUrl || '';
 
         const qtdeNum = Number(atual.qtde) || 0;
         if (info.valorUnitario && qtdeNum > 0) {
@@ -1429,7 +1433,12 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        handleChange('codProduto', cod, true);
+        // mantém o código digitado, mas sem dados adicionais
+        setNovaVenda((prev) => ({
+          ...prev,
+          codProduto: cod,
+          fotoUrl: '',
+        }));
       }
     };
 
@@ -1438,7 +1447,11 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        handleChange('produto', nome, true);
+        setNovaVenda((prev) => ({
+          ...prev,
+          produto: nome,
+          fotoUrl: '',
+        }));
       }
     };
 
@@ -1472,10 +1485,12 @@ const SistemaLoja = () => {
           }
         }
 
+        // Recalcula valor líquido sempre que mexer em valores básicos
         if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
           atual.valorLiq = calcularValorLiquido(atual);
         }
 
+        // Ao mudar código ou nome, tenta puxar dados do produto (fornecedor, foto, valor unitário)
         if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
           const info = encontrarInfoProduto(
             campo === 'codProduto' ? valor : atual.codProduto,
@@ -1485,11 +1500,16 @@ const SistemaLoja = () => {
             atual.codProduto = info.codProduto;
             atual.produto = info.produto;
             atual.fornecedor = info.fornecedor || atual.fornecedor;
+            atual.fotoUrl = info.fotoUrl || '';
+
             const qtdeNum = Number(atual.qtde) || 0;
             if (info.valorUnitario && qtdeNum > 0) {
               atual.valorBruto = info.valorUnitario * qtdeNum;
             }
             atual.valorLiq = calcularValorLiquido(atual);
+          } else {
+            // se não achar o produto, limpa a foto
+            atual.fotoUrl = '';
           }
         }
 
@@ -1531,64 +1551,65 @@ const SistemaLoja = () => {
         data: lancVenda.data,
       });
 
-  // 3) Se for promissória, registra também no controle local de promissórias
-if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
-  const promBase = {
-    nrVenda: lancVenda.nrVenda,
-    cliente: lancVenda.cliente,
-    email: lancVenda.email,
-    valor: lancVenda.valorLiq,
-    dataInicio: lancVenda.inicioPagamento || lancVenda.data,
-    parcelas: lancVenda.parcelas || 1,
-    parcelasAtrasadas: 0,
-    status: 'ABERTO',
-    selecionado: false,
-  };
+      // 3) Se for promissória, registra também no controle local de promissórias
+      if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
+        const promBase = {
+          nrVenda: lancVenda.nrVenda,
+          cliente: lancVenda.cliente,
+          email: lancVenda.email,
+          valor: lancVenda.valorLiq,
+          dataInicio: lancVenda.inicioPagamento || lancVenda.data,
+          parcelas: lancVenda.parcelas || 1,
+          parcelasAtrasadas: 0,
+          status: 'ABERTO',
+          selecionado: false,
+        };
 
-  try {
-    const { data: promDb, error: promError } = await supabase
-      .from('promissorias')
-      .insert({
-        nr_venda: promBase.nrVenda,
-        cliente: promBase.cliente,
-        email: promBase.email,
-        valor: promBase.valor,
-        data_inicio: promBase.dataInicio,
-        parcelas: promBase.parcelas,
-        parcelas_atra: promBase.parcelasAtrasadas,
-        status: promBase.status,
-        selecionado: promBase.selecionado,
-      })
-      .select(
-        'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
-      )
-      .single();
+        try {
+          const { data: promDb, error: promError } = await supabase
+            .from('promissorias')
+            .insert({
+              nr_venda: promBase.nrVenda,
+              cliente: promBase.cliente,
+              email: promBase.email,
+              valor: promBase.valor,
+              data_inicio: promBase.dataInicio,
+              parcelas: promBase.parcelas,
+              parcelas_atra: promBase.parcelasAtrasadas,
+              status: promBase.status,
+              selecionado: promBase.selecionado,
+            })
+            .select(
+              'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
+            )
+            .single();
 
-    if (promError) {
-      console.error('Erro ao salvar promissória no Supabase:', promError);
-      // se der erro na nuvem, pelo menos mantemos local
-      setPromissorias((lista) => [...lista, promBase]);
-    } else {
-      const novaProm = {
-        id: promDb.id,
-        nrVenda: promDb.nr_venda,
-        cliente: promDb.cliente,
-        email: promDb.email,
-        valor: Number(promDb.valor || 0),
-        dataInicio: promDb.data_inicio,
-        parcelas: promDb.parcelas || 0,
-        parcelasAtrasadas: promDb.parcelas_atra || 0,
-        status: promDb.status || 'ABERTO',
-        selecionado: !!promDb.selecionado,
-      };
-      setPromissorias((lista) => [...lista, novaProm]);
-    }
-  } catch (e) {
-    console.error('Erro inesperado ao salvar promissória:', e);
-    setPromissorias((lista) => [...lista, promBase]);
-  }
-}
-       // 4) Salvar venda no Supabase (colunas certas)
+          if (promError) {
+            console.error('Erro ao salvar promissória no Supabase:', promError);
+            // se der erro na nuvem, pelo menos mantemos local
+            setPromissorias((lista) => [...lista, promBase]);
+          } else {
+            const novaProm = {
+              id: promDb.id,
+              nrVenda: promDb.nr_venda,
+              cliente: promDb.cliente,
+              email: promDb.email,
+              valor: Number(promDb.valor || 0),
+              dataInicio: promDb.data_inicio,
+              parcelas: promDb.parcelas || 0,
+              parcelasAtrasadas: promDb.parcelas_atra || 0,
+              status: promDb.status || 'ABERTO',
+              selecionado: !!promDb.selecionado,
+            };
+            setPromissorias((lista) => [...lista, novaProm]);
+          }
+        } catch (e) {
+          console.error('Erro inesperado ao salvar promissória:', e);
+          setPromissorias((lista) => [...lista, promBase]);
+        }
+      }
+
+      // 4) Salvar venda no Supabase (colunas certas)
       try {
         const nrVendaNumero =
           parseInt(
@@ -1656,6 +1677,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         local: 'LOJA',
         parcelas: 1,
         inicioPagamento: '',
+        fotoUrl: '',
       });
     };
 
@@ -1763,57 +1785,82 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
             </div>
           </div>
 
-          {/* Linha 3 - Produto */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Código Produto</label>
-              <select
-                value={novaVenda.codProduto}
-                onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">Selecione...</option>
-                {produtosEstoque.map((p) => (
-                  <option key={p.codProduto} value={p.codProduto}>
-                    {p.codProduto}
-                  </option>
-                ))}
-              </select>
+          {/* Linha 3 - Produto + Pré-visualização da foto */}
+          <div className="md:flex md:items-start gap-6 mb-4 text-sm">
+            {/* Campos de produto */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block font-semibold mb-1">Código Produto</label>
+                <select
+                  value={novaVenda.codProduto}
+                  onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.codProduto}>
+                      {p.codProduto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Produto</label>
+                <select
+                  value={novaVenda.produto}
+                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.produto}>
+                      {p.produto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Fornecedor</label>
+                <input
+                  type="text"
+                  value={novaVenda.fornecedor}
+                  onChange={(e) => handleChange('fornecedor', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Quantidade</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={novaVenda.qtde}
+                  onChange={(e) => handleChange('qtde', Number(e.target.value))}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block font-semibold mb-1">Produto</label>
-              <select
-                value={novaVenda.produto}
-                onChange={(e) => selecionarProdutoPorNome(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">Selecione...</option>
-                {produtosEstoque.map((p) => (
-                  <option key={p.codProduto} value={p.produto}>
-                    {p.produto}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Fornecedor</label>
-              <input
-                type="text"
-                value={novaVenda.fornecedor}
-                onChange={(e) => handleChange('fornecedor', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-                readOnly
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Quantidade</label>
-              <input
-                type="number"
-                min={1}
-                value={novaVenda.qtde}
-                onChange={(e) => handleChange('qtde', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
+
+            {/* Pré-visualização da foto do produto (igual Produtos) */}
+            <div className="mt-4 md:mt-0 w-full md:w-64 lg:w-72">
+              <div className="text-sm font-medium mb-1">Foto do Produto</div>
+              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
+                {novaVenda.fotoUrl ? (
+                  <img
+                    src={novaVenda.fotoUrl}
+                    alt="Foto do produto"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = '';
+                    }}
+                  />
+                ) : (
+                  <span className="text-xs text-gray-500 text-center px-2">
+                    A imagem cadastrada para o produto aparecerá aqui.
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1829,6 +1876,10 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                 onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
                 className="w-full px-3 py-2 border rounded-lg"
               />
+              <p className="text-[10px] text-gray-500 mt-1">
+                Calculado automaticamente pelo valor de compra × quantidade
+                (pode ser ajustado manualmente se necessário).
+              </p>
             </div>
             <div>
               <label className="block font-semibold mb-1">Desconto (R$)</label>
@@ -2151,9 +2202,9 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
             </div>
           </div>
 
-          {/* Resumo estilo painel (2 colunas, colorido) */}
+          {/* Painéis Resumo */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Total Loja */}
+            {/* Loja */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #16a34a, #166534)' }}
@@ -2169,13 +2220,11 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               </div>
               <div className="text-xs opacity-90">
                 Valor estimado em estoque:
-                <span className="font-bold ml-1">
-                  {formatarReal(totalValorLoja)}
-                </span>
+                <span className="font-bold ml-1">{formatarReal(totalValorLoja)}</span>
               </div>
             </div>
 
-            {/* Total Depósito */}
+            {/* Depósito */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #0ea5e9, #0369a1)' }}
@@ -2191,13 +2240,11 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               </div>
               <div className="text-xs opacity-90">
                 Valor estimado em estoque:
-                <span className="font-bold ml-1">
-                  {formatarReal(totalValorDeposito)}
-                </span>
+                <span className="font-bold ml-1">{formatarReal(totalValorDeposito)}</span>
               </div>
             </div>
 
-            {/* Item mais antigo no Depósito */}
+            {/* Mais antigo depósito */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #f97316, #c2410c)' }}
@@ -2207,9 +2254,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               </div>
               {itemMaisAntigoDeposito ? (
                 <>
-                  <div className="font-semibold text-sm">
-                    {itemMaisAntigoDeposito.produto}
-                  </div>
+                  <div className="font-semibold text-sm">{itemMaisAntigoDeposito.produto}</div>
                   <div className="text-xs mt-1">
                     {itemMaisAntigoDeposito.qtde} un. —{' '}
                     {calcularDiasEstoque(itemMaisAntigoDeposito)} dias em estoque
@@ -2220,7 +2265,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               )}
             </div>
 
-            {/* Item com menor tempo na Loja (mais recente) */}
+            {/* Menos tempo loja */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #a855f7, #6d28d9)' }}
@@ -2230,9 +2275,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               </div>
               {itemMenosTempoLoja ? (
                 <>
-                  <div className="font-semibold text-sm">
-                    {itemMenosTempoLoja.produto}
-                  </div>
+                  <div className="font-semibold text-sm">{itemMenosTempoLoja.produto}</div>
                   <div className="text-xs mt-1">
                     {itemMenosTempoLoja.qtde} un. —{' '}
                     {calcularDiasEstoque(itemMenosTempoLoja)} dias em estoque
@@ -2296,10 +2339,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                 })}
                 {estoqueFiltrado.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={7}
-                      className="px-3 py-4 text-center text-xs text-gray-500"
-                    >
+                    <td colSpan={7} className="px-3 py-4 text-center text-xs text-gray-500">
                       Nenhum item de estoque cadastrado ainda.
                     </td>
                   </tr>
@@ -2309,8 +2349,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           </div>
 
           <div className="mt-3 text-xs text-gray-500">
-            Dica: você pode imprimir esta tela pelo navegador para registrar o estoque do
-            dia.
+            Dica: você pode imprimir esta tela pelo navegador para registrar o estoque do dia.
           </div>
         </div>
       </div>
@@ -2326,11 +2365,9 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
       nome: '',
       fornecedor: '',
       estoqueMinimo: 0,
-      fotoUrl: '', // agora guarda o base64 da imagem
+      fotoUrl: '', // base64 armazenado
     });
 
-    // REPOSICAO_DEPOSITO = compra que entra no DEPÓSITO
-    // REPOSICAO_LOJA     = transferência DEPÓSITO -> LOJA
     const [tipoTransacao, setTipoTransacao] =
       useState('REPOSICAO_DEPOSITO');
 
@@ -2343,7 +2380,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
       valorTotal: 0,
     });
 
-    // Seleciona produto pelo código, preenchendo nome e fornecedor
     const selecionarProdutoCompra = (cod) => {
       const p = produtos.find((x) => x.codProduto === cod);
       if (p) {
@@ -2358,7 +2394,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
       }
     };
 
-    // Tratamento de upload de foto (arquivo -> base64)
     const handleFotoChange = (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
@@ -2376,7 +2411,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
       reader.readAsDataURL(file);
     };
 
-    // Salvar / atualizar produto no Supabase e refletir no estado local
     const salvarProduto = async () => {
       if (!produtoEdit.codProduto || !produtoEdit.nome) {
         alert('Informe código e nome do produto.');
@@ -2388,7 +2422,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         nome: produtoEdit.nome,
         fornecedor: produtoEdit.fornecedor || null,
         estoque_minimo: Number(produtoEdit.estoqueMinimo) || 0,
-        // agora salvando o base64 (ou null se vazio)
         foto_url: produtoEdit.fotoUrl || null,
       };
 
@@ -2426,7 +2459,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           return [...atual, novoItem];
         });
 
-        alert('Produto salvo/atualizado com sucesso na nuvem!');
+        alert('Produto salvo/atualizado com sucesso!');
 
         setProdutoEdit({
           codProduto: '',
@@ -2436,12 +2469,11 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           fotoUrl: '',
         });
       } catch (e) {
-        console.error('Erro inesperado em salvarProduto:', e);
+        console.error('Erro inesperado ao salvar produto:', e);
         alert('Erro inesperado ao salvar produto.');
       }
     };
 
-    // Registrar compra (entrada em DEPÓSITO) ou transferência para LOJA
     const registrarCompra = async () => {
       if (!novaCompra.codProduto || !novaCompra.qtde) {
         alert('Informe produto e quantidade.');
@@ -2452,7 +2484,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
       let novoLanc = null;
 
       if (tipoTransacao === 'REPOSICAO_LOJA') {
-        // Movimento interno: Depósito -> Loja (sem valor financeiro)
         novoLanc = {
           data: novaCompra.data,
           tipo: 'REPOSICAO',
@@ -2466,12 +2497,10 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           forma: 'INTERNO',
         };
 
-        // Atualiza estoque
         aplicarMovimentoEstoque({ ...novoLanc });
 
-        alert('Reposição de LOJA registrada no estoque!');
+        alert('Reposição de LOJA registrada!');
       } else {
-        // COMPRA -> entra no DEPÓSITO
         if (!novaCompra.valorTotal) {
           alert('Informe o valor total da compra.');
           return;
@@ -2496,10 +2525,8 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           valorUnitario: valorUnit,
         };
 
-        // Atualiza estoque (entra no DEPÓSITO)
         aplicarMovimentoEstoque({ ...novoLanc });
 
-        // Atualiza valor unitário do produto em memória
         setProdutos((lista) => {
           const idx = lista.findIndex(
             (p) => p.codProduto === novaCompra.codProduto,
@@ -2513,7 +2540,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
             };
             return copia;
           }
-          // Se o produto ainda não existia em produtos
           return [
             ...lista,
             {
@@ -2530,10 +2556,8 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         alert('Compra registrada e estoque atualizado!');
       }
 
-      // 1) Atualiza lançamentos em memória
       setLancamentos((atual) => [...atual, novoLanc]);
 
-      // 2) Persistir no Supabase
       try {
         const { error } = await supabase.from('lancamentos').insert({
           data: novoLanc.data,
@@ -2547,7 +2571,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           juros: novoLanc.juros ?? null,
           valor_liq: novoLanc.valorLiq,
           forma: novoLanc.forma,
-          nr_venda: null, // compra / reposição não tem nº venda
+          nr_venda: null,
           local: novoLanc.local,
           parcelas: null,
           inicio_pagto: null,
@@ -2559,21 +2583,14 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         });
 
         if (error) {
-          console.error(
-            'Erro ao salvar lançamento no Supabase:',
-            error,
-          );
+          console.error('Erro ao salvar compra no Supabase:', error);
           alert('Erro ao salvar na nuvem.');
         }
       } catch (e) {
-        console.error(
-          'Erro inesperado ao salvar lançamento:',
-          e,
-        );
-        alert('Erro inesperado ao salvar na nuvem.');
+        console.error('Erro inesperado ao salvar compra:', e);
+        alert('Erro inesperado.');
       }
 
-      // Limpa formulário
       setNovaCompra({
         data: new Date().toISOString().split('T')[0],
         codProduto: '',
@@ -2593,7 +2610,6 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
-        {/* Info de carregamento dos produtos */}
         {carregandoProdutos && (
           <p className="text-sm text-gray-500 mb-2">
             Carregando produtos da nuvem...
@@ -2606,14 +2622,11 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
             Cadastro de Produtos e Estoque Mínimo
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Aqui você ajusta o estoque mínimo de cada produto e
-            cadastra a foto e fornecedor. Não precisa mais informar
-            endereço de imagem: basta selecionar o arquivo e ele é
-            salvo junto ao produto.
+            Aqui você ajusta o estoque mínimo e cadastra foto do produto. Não
+            precisa mais informar endereço: o upload é salvo automático.
           </p>
 
           <div className="md:flex md:items-start gap-6 mb-4">
-            {/* Campos */}
             <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
@@ -2633,10 +2646,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                 />
                 <datalist id="listaProdCod">
                   {produtos.map((p, idx) => (
-                    <option
-                      key={idx}
-                      value={p.codProduto}
-                    >
+                    <option key={idx} value={p.codProduto}>
                       {p.nome}
                     </option>
                   ))}
@@ -2692,7 +2702,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                 />
               </div>
 
-              {/* Upload da foto */}
+              {/* Upload Foto */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium mb-1">
                   Foto do Produto (upload)
@@ -2704,27 +2714,20 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                   className="w-full text-sm"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Selecione uma imagem do computador ou do celular.
-                  Não é necessário informar endereço (link) da foto.
+                  Basta selecionar um arquivo. A imagem será salva no produto.
                 </p>
               </div>
             </div>
 
-            {/* Pré-visualização da foto */}
+            {/* Pré-visualização */}
             <div className="mt-4 md:mt-0 w-full md:w-64 lg:w-72">
-              <div className="text-sm font-medium mb-1">
-                Pré-visualização
-              </div>
-              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
+              <div className="text-sm font-medium mb-1">Pré-visualização</div>
+              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center bg-gray-50 overflow-hidden">
                 {produtoEdit.fotoUrl ? (
                   <img
                     src={produtoEdit.fotoUrl}
                     alt="Foto do produto"
                     className="w-full h-full object-contain"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = '';
-                    }}
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
@@ -2743,56 +2746,38 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
           </button>
         </div>
 
-        {/* Compras / Reposição */}
+        {/* COMPRAS / REPOSIÇÃO */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold mb-4">
             Aquisição de Estoque / Reposição
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Escolha o tipo de transação. Na{' '}
-            <strong>Reposição Depósito</strong>, você registra
-            compras que aumentam o estoque do depósito. Na{' '}
-            <strong>Reposição Loja</strong>, você apenas
-            transfere quantidade do depósito para a loja, sem
-            registrar valor.
+            Escolha o tipo de transação. Reposição Loja transfere do depósito para a loja;
+            Reposição Depósito registra compras.
           </p>
 
-          {/* Tipo de transação */}
           <div className="mb-4">
             <label className="block text-sm font-semibold mb-1">
               Transação
             </label>
             <select
               value={tipoTransacao}
-              onChange={(e) =>
-                setTipoTransacao(e.target.value)
-              }
+              onChange={(e) => setTipoTransacao(e.target.value)}
               className="w-full md:w-64 px-3 py-2 border rounded-lg text-sm"
             >
-              <option value="REPOSICAO_DEPOSITO">
-                Reposição Depósito (Compra)
-              </option>
-              <option value="REPOSICAO_LOJA">
-                Reposição Loja (Transferência)
-              </option>
+              <option value="REPOSICAO_DEPOSITO">Reposição Depósito (Compra)</option>
+              <option value="REPOSICAO_LOJA">Reposição Loja (Transferência)</option>
             </select>
           </div>
 
-          {/* Dados da transação */}
+          {/* Dados */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Data
-              </label>
+              <label className="block text-sm font-medium mb-1">Data</label>
               <input
                 type="date"
                 value={novaCompra.data}
-                onChange={(e) =>
-                  setNovaCompra({
-                    ...novaCompra,
-                    data: e.target.value,
-                  })
-                }
+                onChange={(e) => setNovaCompra({ ...novaCompra, data: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
@@ -2803,63 +2788,46 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               <input
                 type="text"
                 value={novaCompra.codProduto}
-                onChange={(e) =>
-                  selecionarProdutoCompra(e.target.value)
-                }
+                onChange={(e) => selecionarProdutoCompra(e.target.value)}
                 list="listaProdCodCompra"
                 className="w-full px-3 py-2 border rounded-lg"
               />
               <datalist id="listaProdCodCompra">
                 {produtos.map((p, idx) => (
-                  <option
-                    key={idx}
-                    value={p.codProduto}
-                  >
+                  <option key={idx} value={p.codProduto}>
                     {p.nome}
                   </option>
                 ))}
               </datalist>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Produto
-              </label>
+              <label className="block text-sm font-medium mb-1">Produto</label>
               <input
                 type="text"
                 value={novaCompra.produto}
                 onChange={(e) =>
-                  setNovaCompra({
-                    ...novaCompra,
-                    produto: e.target.value,
-                  })
+                  setNovaCompra({ ...novaCompra, produto: e.target.value })
                 }
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Fornecedor
-              </label>
+              <label className="block text-sm font-medium mb-1">Fornecedor</label>
               <input
                 type="text"
                 value={novaCompra.fornecedor}
                 onChange={(e) =>
-                  setNovaCompra({
-                    ...novaCompra,
-                    fornecedor: e.target.value,
-                  })
+                  setNovaCompra({ ...novaCompra, fornecedor: e.target.value })
                 }
-                className="w-full px-3 py-2 border rounded-lg"
                 disabled={isReposicaoLoja}
+                className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Quantidade
-              </label>
+              <label className="block text-sm font-medium mb-1">Quantidade</label>
               <input
                 type="number"
                 min={1}
@@ -2877,9 +2845,7 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
               <label className="block text-sm font-medium mb-1">
                 Valor Total (R$){' '}
                 {isReposicaoLoja && (
-                  <span className="text-[10px] text-gray-500">
-                    (não usado)
-                  </span>
+                  <span className="text-[10px] text-gray-500">(não usado)</span>
                 )}
               </label>
               <input
@@ -2893,25 +2859,17 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
                     valorTotal: Number(e.target.value),
                   })
                 }
-                className={`w-full px-3 py-2 border rounded-lg ${
-                  isReposicaoLoja
-                    ? 'bg-gray-100 text-gray-500'
-                    : ''
-                }`}
                 disabled={isReposicaoLoja}
+                className={`w-full px-3 py-2 border rounded-lg ${
+                  isReposicaoLoja ? 'bg-gray-100 text-gray-500' : ''
+                }`}
               />
             </div>
             <div className="flex items-end">
               <div className="w-full bg-gray-50 rounded-lg p-3 text-sm">
-                <div className="text-xs text-gray-600">
-                  Valor Unitário aprox.:
-                </div>
+                <div className="text-xs text-gray-600">Valor Unitário aprox.:</div>
                 <div className="font-bold text-gray-800">
-                  {isReposicaoLoja
-                    ? '—'
-                    : formatarReal(
-                        valorUnitarioAtual || 0,
-                      )}
+                  {isReposicaoLoja ? '—' : formatarReal(valorUnitarioAtual || 0)}
                 </div>
               </div>
             </div>
@@ -2921,297 +2879,288 @@ if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
             onClick={registrarCompra}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
           >
-            Registrar Compra / Reposição e Atualizar Estoque
+            Registrar Compra / Reposição
           </button>
         </div>
       </div>
     );
   };
-  // ======== FIM DA PARTE 3/4 ========
   // ========================================================================
-// ========================================================================
-// TELA DE PROMISSÓRIAS
-// ========================================================================
-const TelaPromissorias = () => {
-  const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
+  // TELA DE PROMISSÓRIAS
+  // ========================================================================
+  const TelaPromissorias = () => {
+    const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
 
-  // ===========================================================
-  // CÁLCULO DE ATRASO REAL
-  // ===========================================================
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
 
-  const listaComAtrasoCalculado = promissorias.map((p) => {
-    let parcelasAtrasadas = 0;
+    const ehAtrasada = (p) => {
+      if (!p.dataInicio) return false;
+      const d = new Date(p.dataInicio);
+      if (Number.isNaN(d.getTime())) return false;
+      d.setHours(0, 0, 0, 0);
 
-    if (p.dataInicio) {
-      const dataIni = new Date(p.dataInicio);
-      dataIni.setHours(0, 0, 0, 0);
+      const dataJaPassou = d < hoje;
+      const saldoNaoZerado = (p.valor || 0) > 0 && p.status !== 'QUITADO';
+      const possuiParcelaAtrasada = (p.parcelasAtrasadas || 0) > 0;
 
-      if (dataIni < hoje) {
-        parcelasAtrasadas = p.parcelas - 0; // futuro: inserir cálculo real parcelado
-      }
-    }
-
-    return {
-      ...p,
-      parcelasAtrasadas,
+      // Consideramos atrasada se:
+      // - a data de início já passou
+      // - ainda há saldo
+      // - e há parcela atrasada OU status segue ABERTO
+      return dataJaPassou && saldoNaoZerado && (possuiParcelaAtrasada || p.status === 'ABERTO');
     };
-  });
 
-  const listaFiltrada = listaComAtrasoCalculado.filter((p) =>
-    mostrarSomenteAtrasadas ? p.parcelasAtrasadas > 0 : true
-  );
-
-  // ===========================================================
-  // MARCAR / DESMARCAR SELEÇÃO E SINCRONIZAR COM SUPABASE
-  // ===========================================================
-  const toggleSelecao = async (index) => {
-    const prom = listaFiltrada[index];
-    if (!prom) return;
-
-    const novoSelecionado = !prom.selecionado;
-
-    setPromissorias((lista) =>
-      lista.map((p) =>
-        p.id === prom.id ? { ...p, selecionado: novoSelecionado } : p
-      )
+    const listaFiltrada = promissorias.filter((p) =>
+      mostrarSomenteAtrasadas ? ehAtrasada(p) : true,
     );
 
-    try {
-      const { error } = await supabase
-        .from("promissorias")
-        .update({ selecionado: novoSelecionado })
-        .eq("id", prom.id);
+    const toggleSelecao = async (index) => {
+      const prom = promissorias[index];
+      if (!prom) return;
 
-      if (error) console.error("Erro ao atualizar seleção:", error);
-    } catch (e) {
-      console.error("Erro inesperado:", e);
-    }
-  };
+      const novoSelecionado = !prom.selecionado;
 
-  // ===========================================================
-  // CONSOLIDAÇÃO POR CLIENTE
-  // ===========================================================
-  const consolidadoPorCliente = Object.values(
-    listaFiltrada.reduce((acc, p) => {
-      if (!acc[p.cliente]) {
-        acc[p.cliente] = {
-          cliente: p.cliente,
-          email: p.email,
-          total: 0,
-          atrasadas: 0,
-        };
+      setPromissorias((lista) =>
+        lista.map((p, idx) =>
+          idx === index ? { ...p, selecionado: novoSelecionado } : p,
+        ),
+      );
+
+      if (prom.id) {
+        try {
+          const { error } = await supabase
+            .from('promissorias')
+            .update({ selecionado: novoSelecionado })
+            .eq('id', prom.id);
+
+          if (error) {
+            console.error('Erro ao atualizar seleção da promissória:', error);
+          }
+        } catch (e) {
+          console.error('Erro inesperado ao atualizar seleção da promissória:', e);
+        }
       }
-      acc[p.cliente].total += p.valor || 0;
-      acc[p.cliente].atrasadas += p.parcelasAtrasadas || 0;
-      return acc;
-    }, {})
-  );
+    };
 
-  // ===========================================================
-  // ENVIO (SIMULADO) DE EMAIL
-  // ===========================================================
-  const enviarEmails = () => {
-    const selecionados = promissorias.filter((p) => p.selecionado);
-    if (selecionados.length === 0) {
-      alert("Nenhuma promissória selecionada.");
-      return;
-    }
+    const enviarEmails = () => {
+      const selecionados = promissorias.filter((p) => p.selecionado);
+      if (selecionados.length === 0) {
+        alert('Nenhuma promissória selecionada.');
+        return;
+      }
+      const emails = selecionados
+        .map((p) => `${p.cliente} <${p.email || 'sem-email'}>`)
+        .join('\n');
+      alert(
+        `Simulação de envio de e-mails para:\n\n${emails}\n\n(A integração real de e-mail entra aqui depois.)`,
+      );
+    };
 
-    const emails = selecionados
-      .map((p) => `${p.cliente} <${p.email}>`)
-      .join("\n");
-
-    alert(
-      `Simulação de envio de e-mails:\n\n${emails}\n\n(Implementação real usa API externa)`
+    const consolidados = Object.values(
+      listaFiltrada.reduce((acc, p) => {
+        if (!acc[p.cliente]) {
+          acc[p.cliente] = {
+            cliente: p.cliente,
+            email: p.email,
+            total: 0,
+            atrasadas: 0,
+          };
+        }
+        acc[p.cliente].total += p.valor || 0;
+        acc[p.cliente].atrasadas += p.parcelasAtrasadas || 0;
+        return acc;
+      }, {}),
     );
-  };
 
-  // ===========================================================
-  // RENDERIZAÇÃO
-  // ===========================================================
-  return (
-    <div className="p-6 space-y-6" style={appStyle}>
-      <div className="bg-white rounded-lg shadow p-6">
-        {/* ------------------------------------------- */}
-        {/* TÍTULO E FILTROS */}
-        {/* ------------------------------------------- */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
-            <p className="text-sm text-gray-600">
-              Acompanhe quem está devendo, status e valores.
-            </p>
+    return (
+      <div className="p-6 space-y-6" style={appStyle}>
+        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+          {/* Cabeçalho e filtros */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
+              <p className="text-sm text-gray-600">
+                Selecione as vendas para contato e acompanhe quem está com parcelas em atraso.
+              </p>
+            </div>
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={mostrarSomenteAtrasadas}
+                  onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
+                />
+                Mostrar apenas atrasadas
+              </label>
+              <button
+                onClick={enviarEmails}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
+              >
+                <Mail className="w-4 h-4" />
+                Enviar e-mails selecionados
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={mostrarSomenteAtrasadas}
-                onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
-              />
-              Mostrar apenas parcelas em atraso
-            </label>
-
-            <button
-              onClick={enviarEmails}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
+          {/* Tabela Promissórias */}
+          <div className="overflow-x-auto text-sm mb-6">
+            <table
+              className="w-full border border-gray-200"
+              style={{ minWidth: '950px' }}
             >
-              <Mail className="w-4 h-4" />
-              Enviar avisos
-            </button>
-          </div>
-        </div>
-
-        {/* ------------------------------------------- */}
-        {/* TABELA PRINCIPAL */}
-        {/* ------------------------------------------- */}
-        <div className="overflow-x-auto text-sm mb-6">
-          <table className="w-full">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="px-3 py-2 text-center">
-                  <input type="checkbox" disabled />
-                </th>
-                <th className="px-3 py-2 text-left">Nr Venda</th>
-                <th className="px-3 py-2 text-left">Cliente</th>
-                <th className="px-3 py-2 text-left">E-mail</th>
-                <th className="px-3 py-2 text-right">Saldo Devedor</th>
-                <th className="px-3 py-2 text-left">Data Inicial de Pagamento</th>
-                <th className="px-3 py-2 text-center">Parcelas</th>
-                <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
-                <th className="px-3 py-2 text-center">Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {listaFiltrada.map((prom, idx) => (
-                <tr key={idx} className="border-b hover:bg-gray-50">
-                  <td className="px-3 py-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={prom.selecionado || false}
-                      onChange={() => toggleSelecao(idx)}
-                    />
-                  </td>
-
-                  <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                    {prom.nrVenda}
-                  </td>
-
-                  <td className="px-3 py-2 whitespace-nowrap">{prom.cliente}</td>
-
-                  <td className="px-3 py-2 whitespace-nowrap text-xs">
-                    {prom.email}
-                  </td>
-
-                  <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                    {formatarReal(prom.valor)}
-                  </td>
-
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ""}
-                  </td>
-
-                  <td className="px-3 py-2 text-center whitespace-nowrap">
-                    {prom.parcelas}
-                  </td>
-
-                  <td className="px-3 py-2 text-center whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        prom.parcelasAtrasadas > 0
-                          ? "bg-red-100 text-red-800"
-                          : "bg-green-100 text-green-800"
-                      }`}
-                    >
-                      {prom.parcelasAtrasadas}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-2 text-center whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        prom.parcelasAtrasadas > 0
-                          ? "bg-red-200 text-red-900"
-                          : "bg-yellow-100 text-yellow-800"
-                      }`}
-                    >
-                      {prom.parcelasAtrasadas > 0 ? "EM ATRASO" : "ABERTO"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-
-              {listaFiltrada.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={9}
-                    className="px-3 py-4 text-center text-gray-500 text-xs"
-                  >
-                    Nenhuma promissória encontrada com o filtro atual.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ------------------------------------------- */}
-        {/* CONSOLIDAÇÃO POR CLIENTE - TABELA */}
-        {/* ------------------------------------------- */}
-        <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-3">
-            Consolidação por Cliente
-          </h3>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border rounded-lg">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-2 text-left">Cliente</th>
-                  <th className="px-3 py-2 text-left">E-mail</th>
-                  <th className="px-3 py-2 text-right">Total em Aberto</th>
-                  <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
+                  <th className="px-3 py-2 text-center align-middle">
+                    <input type="checkbox" disabled />
+                  </th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">Nr Venda</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">Cliente</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">E-mail</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Saldo Devedor</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">
+                    Data inicial de Pagamento
+                  </th>
+                  <th className="px-3 py-2 text-center whitespace-nowrap">Parcelas</th>
+                  <th className="px-3 py-2 text-center whitespace-nowrap">
+                    Parcelas em atraso
+                  </th>
+                  <th className="px-3 py-2 text-center whitespace-nowrap">Status</th>
                 </tr>
               </thead>
-
               <tbody>
-                {consolidadoPorCliente.map((c, idx) => (
-                  <tr key={idx} className="border-b hover:bg-gray-50">
-                    <td className="px-3 py-2 whitespace-nowrap">{c.cliente}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-xs">
-                      {c.email}
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                      {formatarReal(c.total)}
-                    </td>
-                    <td className="px-3 py-2 text-center whitespace-nowrap">
-                      {c.atrasadas}
-                    </td>
-                  </tr>
-                ))}
+                {listaFiltrada.map((prom, idx) => {
+                  const indexOriginal = promissorias.findIndex(
+                    (p) => p.nrVenda === prom.nrVenda && p.cliente === prom.cliente,
+                  );
+                const atrasada = ehAtrasada(prom);
 
-                {consolidadoPorCliente.length === 0 && (
+                  return (
+                    <tr
+                      key={idx}
+                      className={`border-t border-gray-200 hover:bg-gray-50 ${
+                        atrasada ? 'bg-red-50' : ''
+                      }`}
+                    >
+                      <td className="px-3 py-2 text-center align-middle">
+                        <input
+                          type="checkbox"
+                          checked={prom.selecionado || false}
+                          onChange={() => toggleSelecao(indexOriginal)}
+                        />
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap font-semibold">
+                        {prom.nrVenda}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">{prom.cliente}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
+                        {prom.email || '-'}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">
+                        {formatarReal(prom.valor)}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        {prom.parcelas}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            (prom.parcelasAtrasadas || 0) > 0
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}
+                        >
+                          {prom.parcelasAtrasadas || 0}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            prom.status === 'ABERTO'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : prom.status === 'QUITADO'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
+                          {prom.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {listaFiltrada.length === 0 && (
                   <tr>
                     <td
-                      colSpan={4}
-                      className="px-3 py-4 text-center text-gray-500 text-xs"
+                      colSpan={9}
+                      className="px-3 py-4 text-center text-xs text-gray-500"
                     >
-                      Nenhum cliente encontrado.
+                      Nenhuma promissória encontrada com os filtros atuais.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Consolidação por Cliente (agora em tabela) */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">
+              Consolidação por Cliente (somente promissórias listadas acima)
+            </h3>
+            <div className="overflow-x-auto text-sm">
+              <table
+                className="w-full border border-gray-200"
+                style={{ minWidth: '700px' }}
+              >
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="px-3 py-2 text-left whitespace-nowrap">Cliente</th>
+                    <th className="px-3 py-2 text-left whitespace-nowrap">E-mail</th>
+                    <th className="px-3 py-2 text-right whitespace-nowrap">
+                      Total em Aberto
+                    </th>
+                    <th className="px-3 py-2 text-center whitespace-nowrap">
+                      Parcelas em Atraso
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidados.map((c, idx) => (
+                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-50">
+                      <td className="px-3 py-2 whitespace-nowrap">{c.cliente}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
+                        {c.email || '-'}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">
+                        {formatarReal(c.total)}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        {c.atrasadas}
+                      </td>
+                    </tr>
+                  ))}
+                  {consolidados.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-3 py-4 text-center text-xs text-gray-500"
+                      >
+                        Nenhum cliente com promissórias considerando o filtro atual.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
   // ========================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
@@ -3269,7 +3218,16 @@ const TelaPromissorias = () => {
           return;
         }
 
-        setUsuarios((lista) => [...lista, data]);
+        setUsuarios((lista) => [
+          ...lista,
+          {
+            id: data.id,
+            login: data.login,
+            nome: data.nome,
+            perfil: data.perfil,
+            senha: data.senha_hash || '',
+          },
+        ]);
 
         alert('Usuário criado com sucesso!');
 
@@ -3285,9 +3243,9 @@ const TelaPromissorias = () => {
       }
     };
 
-    const alterarSenha = async (id, login) => {
+    const alterarSenha = async (id, loginUser) => {
       const novaSenha = window.prompt(
-        `Digite a nova senha para o usuário "${login}":`,
+        `Digite a nova senha para o usuário "${loginUser}":`,
       );
       if (!novaSenha) return;
 
@@ -3305,7 +3263,7 @@ const TelaPromissorias = () => {
 
         setUsuarios((lista) =>
           lista.map((u) =>
-            u.id === id ? { ...u, senha_hash: novaSenha } : u,
+            u.id === id ? { ...u, senha: novaSenha } : u,
           ),
         );
 
