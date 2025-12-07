@@ -2313,17 +2313,16 @@ const SistemaLoja = () => {
           <div className="overflow-x-auto text-sm">
             <table className="w-full">
               <thead className="bg-gray-100">
-  <tr>
-    <th className="px-3 py-2 text-center">Código</th>
-    <th className="px-3 py-2 text-center">Produto</th>
-    <th className="px-3 py-2 text-center">Fornecedor</th>
-    <th className="px-3 py-2 text-center">Local</th>
-    <th className="px-3 py-2 text-center">Quantidade</th>
-    <th className="px-3 py-2 text-center">Dias em Estoque</th>
-    <th className="px-3 py-2 text-center">Status</th>
-  </tr>
-</thead>
-
+                <tr>
+                  <th className="px-3 py-2 text-center">Código</th>
+                  <th className="px-3 py-2 text-center">Produto</th>
+                  <th className="px-3 py-2 text-center">Fornecedor</th>
+                  <th className="px-3 py-2 text-center">Local</th>
+                  <th className="px-3 py-2 text-center">Quantidade</th>
+                  <th className="px-3 py-2 text-center">Dias em Estoque</th>
+                  <th className="px-3 py-2 text-center">Status</th>
+                </tr>
+              </thead>
               <tbody>
                 {estoqueFiltrado.map((item, idx) => {
                   const status = statusEstoque(item.codProduto);
