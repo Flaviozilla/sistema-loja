@@ -3137,7 +3137,7 @@ const SistemaLoja = () => {
     );
   };
 
-   // ========================================================================
+    // ========================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
   // ========================================================================
   const TelaUsuarios = () => {
@@ -3167,7 +3167,7 @@ const SistemaLoja = () => {
         return;
       }
 
-      // Login interno = mesmo texto do Nome (para você usar o Nome na tela de login)
+      // Login interno = mesmo texto do Nome (pra você usar o Nome na tela de login)
       const loginGerado = novoUsuario.nome.trim();
 
       const existe = usuarios.some(
@@ -3196,7 +3196,6 @@ const SistemaLoja = () => {
           return;
         }
 
-        // Garante que o estado local tenha o campo "senha" (usado no login)
         const novo = {
           id: data.id,
           login: data.login,
@@ -3252,7 +3251,16 @@ const SistemaLoja = () => {
       }
     };
 
-    const excluirUsuario = async (id, nomeOuLogin) => {
+    const excluirUsuario = async (id, nomeOuLogin, perfilUsuario) => {
+      // impede excluir o último ADM
+      if (perfilUsuario === 'ADM') {
+        const qtdAdms = usuarios.filter((u) => u.perfil === 'ADM').length;
+        if (qtdAdms <= 1) {
+          alert('Não é possível excluir o último usuário ADM.');
+          return;
+        }
+      }
+
       const confirma = window.confirm(
         `Tem certeza que deseja excluir o usuário "${nomeOuLogin}"?`,
       );
@@ -3360,7 +3368,9 @@ const SistemaLoja = () => {
                         Alterar senha
                       </button>
                       <button
-                        onClick={() => excluirUsuario(u.id, u.nome || u.login)}
+                        onClick={() =>
+                          excluirUsuario(u.id, u.nome || u.login, u.perfil)
+                        }
                         className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
                       >
                         Excluir
@@ -3385,7 +3395,7 @@ const SistemaLoja = () => {
       </div>
     );
   };
-
+ 
 
   // ========================================================================
   // RENDERIZAÇÃO PRINCIPAL
