@@ -648,7 +648,7 @@ const SistemaLoja = () => {
   const metricas = calcularMetricas();
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
-  // ========================================================================
+    // ========================================================================
   // TELA DE LOGIN
   // ========================================================================
   const TelaLogin = () => {
@@ -747,7 +747,7 @@ const SistemaLoja = () => {
                   Usuário
                 </label>
                 <input
-                  autoFocus
+                  // autoFocus removido para não roubar o foco da senha
                   type="text"
                   value={loginForm.login}
                   onChange={(e) =>
@@ -1326,7 +1326,7 @@ const SistemaLoja = () => {
     );
   };
   // ======== FIM DA PARTE 1/4 ========
-  // ========================================================================
+    // ========================================================================
   // TELA VENDEDOR (LANÇAMENTOS DE VENDAS)
   // ========================================================================
   const TelaVendedor = () => {
@@ -1348,51 +1348,36 @@ const SistemaLoja = () => {
       local: 'LOJA',
       parcelas: 1,
       inicioPagamento: '',
-      fotoUrl: '', // pré-visualização da foto do produto
+      fotoUrl: '', // pré-visualização da foto
     });
 
-    // Lista de produtos disponíveis no ESTOQUE (únicos por código)
-    const produtosEstoque = Array.from(
-      new Map(
-        estoque.map((e) => [
-          e.codProduto,
-          {
-            codProduto: e.codProduto,
-            produto: e.produto,
-          },
-        ]),
-      ).values(),
-    );
+    // Lista de produtos vem da tabela de produtos (não mais do estoque)
+    const produtosLista = produtos.map((p) => ({
+      codProduto: p.codProduto,
+      nome: p.nome,
+      fornecedor: p.fornecedor || '',
+      valorUnitario: p.valorUnitario || 0,
+      fotoUrl: p.fotoUrl || '',
+    }));
 
     const encontrarInfoProduto = (cod, nome) => {
-      let item =
-        (cod &&
-          (estoque.find(
-            (e) => e.codProduto === cod && e.local === 'LOJA',
-          ) ||
-            estoque.find((e) => e.codProduto === cod))) ||
-        null;
+      let prod = null;
 
-      if (!item && nome) {
-        item =
-          estoque.find(
-            (e) => e.produto === nome && e.local === 'LOJA',
-          ) || estoque.find((e) => e.produto === nome);
+      if (cod) {
+        prod = produtosLista.find((p) => p.codProduto === cod);
+      }
+      if (!prod && nome) {
+        prod = produtosLista.find((p) => p.nome === nome);
       }
 
-      if (!item) return null;
-
-      const prodCad = produtos.find((p) => p.codProduto === item.codProduto);
-      const valorUnitario =
-        prodCad && prodCad.valorUnitario ? prodCad.valorUnitario : 0;
-      const fotoUrl = prodCad && prodCad.fotoUrl ? prodCad.fotoUrl : '';
+      if (!prod) return null;
 
       return {
-        codProduto: item.codProduto,
-        produto: item.produto,
-        fornecedor: item.fornecedor,
-        valorUnitario,
-        fotoUrl,
+        codProduto: prod.codProduto,
+        produto: prod.nome,
+        fornecedor: prod.fornecedor,
+        valorUnitario: prod.valorUnitario || 0,
+        fotoUrl: prod.fotoUrl || '',
       };
     };
 
@@ -1404,6 +1389,7 @@ const SistemaLoja = () => {
     const atualizarVendaComProduto = (info) => {
       setNovaVenda((anterior) => {
         const atual = { ...anterior };
+
         atual.codProduto = info.codProduto;
         atual.produto = info.produto;
         atual.fornecedor = info.fornecedor || '';
@@ -1433,12 +1419,7 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        // mantém o código digitado, mas sem dados adicionais
-        setNovaVenda((prev) => ({
-          ...prev,
-          codProduto: cod,
-          fotoUrl: '',
-        }));
+        handleChange('codProduto', cod, true);
       }
     };
 
@@ -1447,11 +1428,7 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        setNovaVenda((prev) => ({
-          ...prev,
-          produto: nome,
-          fotoUrl: '',
-        }));
+        handleChange('produto', nome, true);
       }
     };
 
@@ -1459,6 +1436,7 @@ const SistemaLoja = () => {
       setNovaVenda((anterior) => {
         let atual = { ...anterior, [campo]: valor };
 
+        // Data
         if (campo === 'data') {
           atual.nrVenda = gerarNumeroVenda(atual.data);
 
@@ -1467,6 +1445,7 @@ const SistemaLoja = () => {
           }
         }
 
+        // Forma de pagamento
         if (campo === 'forma') {
           if (valor === 'CREDITO') {
             atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
@@ -1477,6 +1456,7 @@ const SistemaLoja = () => {
           }
         }
 
+        // Quantidade
         if (campo === 'qtde') {
           const infoProd = encontrarInfoProduto(atual.codProduto, atual.produto);
           const qtdeNum = Number(valor) || 0;
@@ -1485,17 +1465,18 @@ const SistemaLoja = () => {
           }
         }
 
-        // Recalcula valor líquido sempre que mexer em valores básicos
+        // Números que alteram o valor final
         if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
           atual.valorLiq = calcularValorLiquido(atual);
         }
 
-        // Ao mudar código ou nome, tenta puxar dados do produto (fornecedor, foto, valor unitário)
+        // Quando trocar código ou nome, puxar fornecedor, valor unitário e foto
         if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
           const info = encontrarInfoProduto(
             campo === 'codProduto' ? valor : atual.codProduto,
             campo === 'produto' ? valor : atual.produto,
           );
+
           if (info) {
             atual.codProduto = info.codProduto;
             atual.produto = info.produto;
@@ -1507,9 +1488,6 @@ const SistemaLoja = () => {
               atual.valorBruto = info.valorUnitario * qtdeNum;
             }
             atual.valorLiq = calcularValorLiquido(atual);
-          } else {
-            // se não achar o produto, limpa a foto
-            atual.fotoUrl = '';
           }
         }
 
@@ -1551,7 +1529,7 @@ const SistemaLoja = () => {
         data: lancVenda.data,
       });
 
-      // 3) Se for promissória, registra também no controle local de promissórias
+      // 3) Se for promissória, registra também em promissórias
       if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         const promBase = {
           nrVenda: lancVenda.nrVenda,
@@ -1586,7 +1564,6 @@ const SistemaLoja = () => {
 
           if (promError) {
             console.error('Erro ao salvar promissória no Supabase:', promError);
-            // se der erro na nuvem, pelo menos mantemos local
             setPromissorias((lista) => [...lista, promBase]);
           } else {
             const novaProm = {
@@ -1609,7 +1586,7 @@ const SistemaLoja = () => {
         }
       }
 
-      // 4) Salvar venda no Supabase (colunas certas)
+      // 4) Salvar venda no Supabase
       try {
         const nrVendaNumero =
           parseInt(
@@ -1712,7 +1689,7 @@ const SistemaLoja = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold mb-1">Forma de Pagamento</label>
+              <label className="block font-semibold mb-1">Forma de pagamento</label>
               <select
                 value={novaVenda.forma}
                 onChange={(e) => handleChange('forma', e.target.value)}
@@ -1736,7 +1713,7 @@ const SistemaLoja = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold mb-1">Início do Pagamento</label>
+              <label className="block font-semibold mb-1">Data inicial do pagamento</label>
               <input
                 type="date"
                 value={novaVenda.inicioPagamento}
@@ -1785,10 +1762,10 @@ const SistemaLoja = () => {
             </div>
           </div>
 
-          {/* Linha 3 - Produto + Pré-visualização da foto */}
-          <div className="md:flex md:items-start gap-6 mb-4 text-sm">
-            {/* Campos de produto */}
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Linha 3 - Produto + Pré-visualização da foto (lado direito) */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4 text-sm">
+            {/* Campos do produto */}
+            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block font-semibold mb-1">Código Produto</label>
                 <select
@@ -1797,7 +1774,7 @@ const SistemaLoja = () => {
                   className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="">Selecione...</option>
-                  {produtosEstoque.map((p) => (
+                  {produtosLista.map((p) => (
                     <option key={p.codProduto} value={p.codProduto}>
                       {p.codProduto}
                     </option>
@@ -1812,9 +1789,9 @@ const SistemaLoja = () => {
                   className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="">Selecione...</option>
-                  {produtosEstoque.map((p) => (
-                    <option key={p.codProduto} value={p.produto}>
-                      {p.produto}
+                  {produtosLista.map((p) => (
+                    <option key={p.codProduto} value={p.nome}>
+                      {p.nome}
                     </option>
                   ))}
                 </select>
@@ -1841,9 +1818,9 @@ const SistemaLoja = () => {
               </div>
             </div>
 
-            {/* Pré-visualização da foto do produto (igual Produtos) */}
-            <div className="mt-4 md:mt-0 w-full md:w-64 lg:w-72">
-              <div className="text-sm font-medium mb-1">Foto do Produto</div>
+            {/* Pré-visualização da foto */}
+            <div className="lg:col-span-2">
+              <div className="text-sm font-medium mb-1">Foto do produto</div>
               <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
                 {novaVenda.fotoUrl ? (
                   <img
@@ -1857,7 +1834,7 @@ const SistemaLoja = () => {
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
-                    A imagem cadastrada para o produto aparecerá aqui.
+                    Ao selecionar um produto com foto cadastrada, a imagem aparecerá aqui.
                   </span>
                 )}
               </div>
@@ -1876,10 +1853,6 @@ const SistemaLoja = () => {
                 onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
                 className="w-full px-3 py-2 border rounded-lg"
               />
-              <p className="text-[10px] text-gray-500 mt-1">
-                Calculado automaticamente pelo valor de compra × quantidade
-                (pode ser ajustado manualmente se necessário).
-              </p>
             </div>
             <div>
               <label className="block font-semibold mb-1">Desconto (R$)</label>
@@ -1904,7 +1877,9 @@ const SistemaLoja = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold mb-1">Valor Líquido (R$)</label>
+              <label className="block font-semibold mb-1">
+                Valor final da venda (R$)
+              </label>
               <input
                 type="text"
                 disabled
@@ -3162,17 +3137,17 @@ const SistemaLoja = () => {
     );
   };
 
-  // ========================================================================
+   // ========================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
   // ========================================================================
   const TelaUsuarios = () => {
     const [novoUsuario, setNovoUsuario] = useState({
-      login: '',
       nome: '',
       perfil: 'VENDA',
       senha: '',
     });
 
+    // Somente ADM pode ver esta tela
     if (perfil !== 'ADM') {
       return (
         <div className="p-6" style={appStyle}>
@@ -3187,16 +3162,19 @@ const SistemaLoja = () => {
     }
 
     const criarUsuario = async () => {
-      if (!novoUsuario.login || !novoUsuario.nome || !novoUsuario.senha) {
-        alert('Preencha login, nome e senha.');
+      if (!novoUsuario.nome || !novoUsuario.senha) {
+        alert('Preencha Nome e Senha.');
         return;
       }
 
+      // Login interno = mesmo texto do Nome (para você usar o Nome na tela de login)
+      const loginGerado = novoUsuario.nome.trim();
+
       const existe = usuarios.some(
-        (u) => u.login.toLowerCase() === novoUsuario.login.toLowerCase(),
+        (u) => (u.login || u.nome).toLowerCase() === loginGerado.toLowerCase(),
       );
       if (existe) {
-        alert('Já existe um usuário com esse login.');
+        alert('Já existe um usuário com esse nome/login.');
         return;
       }
 
@@ -3204,7 +3182,7 @@ const SistemaLoja = () => {
         const { data, error } = await supabase
           .from('usuarios')
           .insert({
-            login: novoUsuario.login,
+            login: loginGerado,
             nome: novoUsuario.nome,
             perfil: novoUsuario.perfil,
             senha_hash: novoUsuario.senha,
@@ -3218,21 +3196,20 @@ const SistemaLoja = () => {
           return;
         }
 
-        setUsuarios((lista) => [
-          ...lista,
-          {
-            id: data.id,
-            login: data.login,
-            nome: data.nome,
-            perfil: data.perfil,
-            senha: data.senha_hash || '',
-          },
-        ]);
+        // Garante que o estado local tenha o campo "senha" (usado no login)
+        const novo = {
+          id: data.id,
+          login: data.login,
+          nome: data.nome,
+          perfil: data.perfil,
+          senha: data.senha_hash || '',
+        };
+
+        setUsuarios((lista) => [...lista, novo]);
 
         alert('Usuário criado com sucesso!');
 
         setNovoUsuario({
-          login: '',
           nome: '',
           perfil: 'VENDA',
           senha: '',
@@ -3243,9 +3220,9 @@ const SistemaLoja = () => {
       }
     };
 
-    const alterarSenha = async (id, loginUser) => {
+    const alterarSenha = async (id, nomeOuLogin) => {
       const novaSenha = window.prompt(
-        `Digite a nova senha para o usuário "${loginUser}":`,
+        `Digite a nova senha para o usuário "${nomeOuLogin}":`,
       );
       if (!novaSenha) return;
 
@@ -3261,6 +3238,7 @@ const SistemaLoja = () => {
           return;
         }
 
+        // Atualiza também o campo "senha" no estado local (usado no handleLogin)
         setUsuarios((lista) =>
           lista.map((u) =>
             u.id === id ? { ...u, senha: novaSenha } : u,
@@ -3274,6 +3252,30 @@ const SistemaLoja = () => {
       }
     };
 
+    const excluirUsuario = async (id, nomeOuLogin) => {
+      const confirma = window.confirm(
+        `Tem certeza que deseja excluir o usuário "${nomeOuLogin}"?`,
+      );
+      if (!confirma) return;
+
+      try {
+        const { error } = await supabase.from('usuarios').delete().eq('id', id);
+
+        if (error) {
+          console.error('Erro ao excluir usuário na nuvem:', error);
+          alert('Erro ao excluir usuário na nuvem. Veja o console (F12).');
+          return;
+        }
+
+        setUsuarios((lista) => lista.filter((u) => u.id !== id));
+
+        alert('Usuário excluído com sucesso!');
+      } catch (e) {
+        console.error('Erro inesperado ao excluir usuário:', e);
+        alert('Erro inesperado ao excluir usuário na nuvem.');
+      }
+    };
+
     return (
       <div className="p-6 space-y-6" style={appStyle}>
         <div className="bg-white rounded-lg shadow p-6">
@@ -3284,19 +3286,7 @@ const SistemaLoja = () => {
           </p>
 
           {/* Formulário novo usuário */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Login</label>
-              <input
-                type="text"
-                value={novoUsuario.login}
-                onChange={(e) =>
-                  setNovoUsuario({ ...novoUsuario, login: e.target.value })
-                }
-                className="w-full px-3 py-2 border rounded-lg"
-                placeholder="ex: venda3"
-              />
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
             <div>
               <label className="block font-semibold mb-1">Nome</label>
               <input
@@ -3306,7 +3296,7 @@ const SistemaLoja = () => {
                   setNovoUsuario({ ...novoUsuario, nome: e.target.value })
                 }
                 className="w-full px-3 py-2 border rounded-lg"
-                placeholder="Nome completo"
+                placeholder="Nome completo (usado como usuário)"
               />
             </div>
             <div>
@@ -3341,7 +3331,7 @@ const SistemaLoja = () => {
             onClick={criarUsuario}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
           >
-            Criar Usuário
+            Criar usuário
           </button>
         </div>
 
@@ -3352,7 +3342,6 @@ const SistemaLoja = () => {
             <table className="w-full">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-2 text-left">Login</th>
                   <th className="px-3 py-2 text-left">Nome</th>
                   <th className="px-3 py-2 text-left">Perfil</th>
                   <th className="px-3 py-2 text-center">Ações</th>
@@ -3361,15 +3350,20 @@ const SistemaLoja = () => {
               <tbody>
                 {usuarios.map((u, idx) => (
                   <tr key={idx} className="border-b hover:bg-gray-50">
-                    <td className="px-3 py-2 font-mono text-xs">{u.login}</td>
                     <td className="px-3 py-2">{u.nome}</td>
                     <td className="px-3 py-2">{u.perfil}</td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-3 py-2 text-center space-x-2">
                       <button
-                        onClick={() => alterarSenha(u.id, u.login)}
+                        onClick={() => alterarSenha(u.id, u.nome || u.login)}
                         className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"
                       >
                         Alterar senha
+                      </button>
+                      <button
+                        onClick={() => excluirUsuario(u.id, u.nome || u.login)}
+                        className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Excluir
                       </button>
                     </td>
                   </tr>
@@ -3377,7 +3371,7 @@ const SistemaLoja = () => {
                 {usuarios.length === 0 && (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={3}
                       className="px-3 py-4 text-center text-gray-500 text-xs"
                     >
                       Nenhum usuário cadastrado.
@@ -3391,6 +3385,7 @@ const SistemaLoja = () => {
       </div>
     );
   };
+
 
   // ========================================================================
   // RENDERIZAÇÃO PRINCIPAL
