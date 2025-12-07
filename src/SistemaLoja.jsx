@@ -1350,33 +1350,49 @@ const SistemaLoja = () => {
       inicioPagamento: '',
     });
 
-    // Agora a lista vem direto da TABELA DE PRODUTOS
-    const produtosDisponiveis = produtos.map((p) => ({
-      codProduto: p.codProduto,
-      produto: p.nome,
-      fornecedor: p.fornecedor || '',
-      valorUnitario: p.valorUnitario || 0,
-      fotoUrl: p.fotoUrl || '',
-    }));
+    // Lista de produtos disponíveis no ESTOQUE (únicos por código)
+    const produtosEstoque = Array.from(
+      new Map(
+        estoque.map((e) => [
+          e.codProduto,
+          {
+            codProduto: e.codProduto,
+            produto: e.produto,
+          },
+        ]),
+      ).values(),
+    );
 
-    // Encontrar info do produto (por código ou nome) usando a tabela de produtos
     const encontrarInfoProduto = (cod, nome) => {
-      let prod = null;
+      let item =
+        (cod &&
+          (estoque.find(
+            (e) => e.codProduto === cod && e.local === 'LOJA',
+          ) ||
+            estoque.find((e) => e.codProduto === cod))) ||
+        null;
 
-      if (cod) {
-        prod = produtos.find((p) => p.codProduto === cod);
+      if (!item && nome) {
+        item =
+          estoque.find(
+            (e) => e.produto === nome && e.local === 'LOJA',
+          ) || estoque.find((e) => e.produto === nome);
       }
-      if (!prod && nome) {
-        prod = produtos.find((p) => p.nome === nome);
-      }
-      if (!prod) return null;
+
+      if (!item) return null;
+
+      const prodCad = produtos.find((p) => p.codProduto === item.codProduto);
+      const valorUnitario =
+        prodCad && typeof prodCad.valorUnitario === 'number'
+          ? prodCad.valorUnitario
+          : 0;
 
       return {
-        codProduto: prod.codProduto,
-        produto: prod.nome,
-        fornecedor: prod.fornecedor || '',
-        valorUnitario: prod.valorUnitario || 0,
-        fotoUrl: prod.fotoUrl || '',
+        codProduto: item.codProduto,
+        produto: item.produto,
+        fornecedor: item.fornecedor,
+        valorUnitario,
+        fotoUrl: prodCad?.fotoUrl || '',
       };
     };
 
@@ -1393,7 +1409,7 @@ const SistemaLoja = () => {
         atual.fornecedor = info.fornecedor || '';
 
         const qtdeNum = Number(atual.qtde) || 0;
-        if (qtdeNum > 0 && info.valorUnitario > 0) {
+        if (info.valorUnitario && qtdeNum > 0) {
           atual.valorBruto = info.valorUnitario * qtdeNum;
         }
 
@@ -1433,7 +1449,7 @@ const SistemaLoja = () => {
       setNovaVenda((anterior) => {
         let atual = { ...anterior, [campo]: valor };
 
-        // Data → atualiza Nº da venda e início de pagamento (se crédito)
+        // Data → recalcula número da venda e início de pagamento (crédito)
         if (campo === 'data') {
           atual.nrVenda = gerarNumeroVenda(atual.data);
 
@@ -1442,7 +1458,7 @@ const SistemaLoja = () => {
           }
         }
 
-        // Forma de pagamento
+        // Forma de pagamento → controla início de pagamento
         if (campo === 'forma') {
           if (valor === 'CREDITO') {
             atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
@@ -1453,16 +1469,21 @@ const SistemaLoja = () => {
           }
         }
 
-        // Quantidade → recalcula VALOR BRUTO com base no valor unitário cadastrado
+        // Quantidade → recalcula valor bruto (valor unitário x qtde)
         if (campo === 'qtde') {
           const infoProd = encontrarInfoProduto(atual.codProduto, atual.produto);
           const qtdeNum = Number(valor) || 0;
-          if (infoProd && infoProd.valorUnitario > 0 && qtdeNum > 0) {
+          if (infoProd && infoProd.valorUnitario && qtdeNum > 0) {
             atual.valorBruto = infoProd.valorUnitario * qtdeNum;
           }
         }
 
-        // Se mudou código ou nome, tenta puxar informações do produto
+        // Desconto / juros → só mexem no valor líquido
+        if (['desconto', 'juros'].includes(campo)) {
+          // nada no valorBruto, apenas recalcular valorLiq
+        }
+
+        // Recalcular valor bruto quando mudar produto/código
         if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
           const info = encontrarInfoProduto(
             campo === 'codProduto' ? valor : atual.codProduto,
@@ -1472,18 +1493,15 @@ const SistemaLoja = () => {
             atual.codProduto = info.codProduto;
             atual.produto = info.produto;
             atual.fornecedor = info.fornecedor || atual.fornecedor;
-
             const qtdeNum = Number(atual.qtde) || 0;
-            if (info.valorUnitario > 0 && qtdeNum > 0) {
+            if (info.valorUnitario && qtdeNum > 0) {
               atual.valorBruto = info.valorUnitario * qtdeNum;
             }
           }
         }
 
-        // Sempre que mexer em valorBruto / desconto / juros / qtde → recalcula valor final
-        if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
-          atual.valorLiq = calcularValorLiquido(atual);
-        }
+        // Valor líquido sempre recalculado por último
+        atual.valorLiq = calcularValorLiquido(atual);
 
         return atual;
       });
@@ -1523,7 +1541,7 @@ const SistemaLoja = () => {
         data: lancVenda.data,
       });
 
-      // 3) Se for promissória, registra na tabela de promissórias (Supabase + local)
+      // 3) Se for promissória, registra também
       if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
         const promBase = {
           nrVenda: lancVenda.nrVenda,
@@ -1580,7 +1598,7 @@ const SistemaLoja = () => {
         }
       }
 
-      // 4) Salvar venda no Supabase
+      // 4) Salvar venda no Supabase (colunas certas)
       try {
         const nrVendaNumero =
           parseInt(
@@ -1651,11 +1669,12 @@ const SistemaLoja = () => {
       });
     };
 
-    // Produto selecionado (para mostrar foto)
-    const produtoSelecionadoInfo = encontrarInfoProduto(
-      novaVenda.codProduto,
-      novaVenda.produto,
-    );
+    // ======= INTERFACE =======
+    // Foto do produto selecionado (se houver)
+    const infoProdSelecionado =
+      novaVenda.codProduto || novaVenda.produto
+        ? encontrarInfoProduto(novaVenda.codProduto, novaVenda.produto)
+        : null;
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
@@ -1666,239 +1685,230 @@ const SistemaLoja = () => {
             automaticamente.
           </p>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6 items-start">
-            {/* FORMULÁRIO */}
+          {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
             <div>
-              {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Data</label>
-                  <input
-                    type="date"
-                    value={novaVenda.data}
-                    onChange={(e) => handleChange('data', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Nr Venda</label>
-                  <input
-                    type="text"
-                    value={novaVenda.nrVenda}
-                    onChange={(e) => handleChange('nrVenda', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                    placeholder="Gerado automaticamente"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Forma de pagamento</label>
-                  <select
-                    value={novaVenda.forma}
-                    onChange={(e) => handleChange('forma', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="PIX">PIX</option>
-                    <option value="DEBITO">Débito</option>
-                    <option value="CREDITO">Crédito</option>
-                    <option value="DINHEIRO">Dinheiro</option>
-                    <option value="PROMISSORIA">Promissória</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Qtd Parcelas</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={novaVenda.parcelas}
-                    onChange={(e) => handleChange('parcelas', Number(e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Data inicial de pagamento
-                  </label>
-                  <input
-                    type="date"
-                    value={novaVenda.inicioPagamento}
-                    onChange={(e) => handleChange('inicioPagamento', e.target.value)}
-                    disabled={novaVenda.forma === 'CREDITO'}
-                    className={`w-full px-3 py-2 border rounded-lg ${
-                      novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
-                    }`}
-                  />
-                  {novaVenda.forma === 'CREDITO' && (
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      Para crédito, o início é calculado para o dia 5 do mês seguinte.
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Linha 2 - Cliente */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Cliente</label>
-                  <input
-                    type="text"
-                    value={novaVenda.cliente}
-                    onChange={(e) => handleChange('cliente', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">E-mail</label>
-                  <input
-                    type="email"
-                    value={novaVenda.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Telefone</label>
-                  <input
-                    type="text"
-                    value={novaVenda.telefone}
-                    onChange={(e) => handleChange('telefone', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Linha 3 - Produto */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Código Produto</label>
-                  <select
-                    value={novaVenda.codProduto}
-                    onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="">Selecione...</option>
-                    {produtosDisponiveis.map((p) => (
-                      <option key={p.codProduto} value={p.codProduto}>
-                        {p.codProduto}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Produto</label>
-                  <select
-                    value={novaVenda.produto}
-                    onChange={(e) => selecionarProdutoPorNome(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="">Selecione...</option>
-                    {produtosDisponiveis.map((p) => (
-                      <option key={p.codProduto} value={p.produto}>
-                        {p.produto}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Fornecedor</label>
-                  <input
-                    type="text"
-                    value={novaVenda.fornecedor}
-                    onChange={(e) => handleChange('fornecedor', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Quantidade</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={novaVenda.qtde}
-                    onChange={(e) => handleChange('qtde', Number(e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Linha 4 - Valores */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={novaVenda.valorBruto}
-                    onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Desconto (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={novaVenda.desconto}
-                    onChange={(e) => handleChange('desconto', Number(e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Juros (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={novaVenda.juros}
-                    onChange={(e) => handleChange('juros', Number(e.target.value))}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Valor final da venda (R$)
-                  </label>
-                  <input
-                    type="text"
-                    disabled
-                    value={formatarReal(calcularValorLiquido(novaVenda))}
-                    className="w-full px-3 py-2 border rounded-lg bg-gray-100"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={registrarVenda}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
+              <label className="block font-semibold mb-1">Data</label>
+              <input
+                type="date"
+                value={novaVenda.data}
+                onChange={(e) => handleChange('data', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Nr Venda</label>
+              <input
+                type="text"
+                value={novaVenda.nrVenda}
+                onChange={(e) => handleChange('nrVenda', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Gerado automaticamente"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Forma de pagamento</label>
+              <select
+                value={novaVenda.forma}
+                onChange={(e) => handleChange('forma', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
               >
-                Registrar Venda
-              </button>
+                <option value="PIX">PIX</option>
+                <option value="DEBITO">Débito</option>
+                <option value="CREDITO">Crédito</option>
+                <option value="DINHEIRO">Dinheiro</option>
+                <option value="PROMISSORIA">Promissória</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Qtd Parcelas</label>
+              <input
+                type="number"
+                min={1}
+                value={novaVenda.parcelas}
+                onChange={(e) => handleChange('parcelas', Number(e.target.value))}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Início do Pagamento</label>
+              <input
+                type="date"
+                value={novaVenda.inicioPagamento}
+                onChange={(e) => handleChange('inicioPagamento', e.target.value)}
+                disabled={novaVenda.forma === 'CREDITO'}
+                className={`w-full px-3 py-2 border rounded-lg ${
+                  novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
+                }`}
+              />
+              {novaVenda.forma === 'CREDITO' && (
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Para crédito, o início é calculado para o dia 5 do mês seguinte.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Linha 2 - Cliente */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
+            <div>
+              <label className="block font-semibold mb-1">Cliente</label>
+              <input
+                type="text"
+                value={novaVenda.cliente}
+                onChange={(e) => handleChange('cliente', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">E-mail</label>
+              <input
+                type="email"
+                value={novaVenda.email}
+                onChange={(e) => handleChange('email', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Telefone</label>
+              <input
+                type="text"
+                value={novaVenda.telefone}
+                onChange={(e) => handleChange('telefone', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+          </div>
+
+          {/* Linha 3 - Produto + foto ao lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 text-sm">
+            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block font-semibold mb-1">Código Produto</label>
+                <select
+                  value={novaVenda.codProduto}
+                  onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.codProduto}>
+                      {p.codProduto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Produto</label>
+                <select
+                  value={novaVenda.produto}
+                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.produto}>
+                      {p.produto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Fornecedor</label>
+                <input
+                  type="text"
+                  value={novaVenda.fornecedor}
+                  onChange={(e) => handleChange('fornecedor', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Quantidade</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={novaVenda.qtde}
+                  onChange={(e) => handleChange('qtde', Number(e.target.value))}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
             </div>
 
-            {/* PRÉ-VISUALIZAÇÃO DA FOTO DO PRODUTO */}
-            <div>
-              <div className="text-sm font-medium mb-1">Pré-visualização do produto</div>
+            {/* Foto do produto */}
+            <div className="flex flex-col">
+              <label className="block font-semibold mb-1">Foto do produto</label>
               <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
-                {produtoSelecionadoInfo && produtoSelecionadoInfo.fotoUrl ? (
+                {infoProdSelecionado?.fotoUrl ? (
                   <img
-                    src={produtoSelecionadoInfo.fotoUrl}
+                    src={infoProdSelecionado.fotoUrl}
                     alt="Foto do produto"
                     className="w-full h-full object-contain"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = '';
-                    }}
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
-                    A imagem cadastrada para o produto aparecerá aqui após selecionar o
-                    código ou o nome.
+                    A imagem cadastrada para o produto aparecerá aqui.
                   </span>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Linha 4 - Valores */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+            <div>
+              <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
+              <input
+                type="text"
+                disabled
+                value={formatarReal(novaVenda.valorBruto)}
+                className="w-full px-3 py-2 border rounded-lg bg-gray-100"
+              />
+              <p className="text-[10px] text-gray-500 mt-1">
+                Calculado automaticamente: valor unitário do produto × quantidade.
+              </p>
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Desconto (R$)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={novaVenda.desconto}
+                onChange={(e) => handleChange('desconto', Number(e.target.value))}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Juros (R$)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={novaVenda.juros}
+                onChange={(e) => handleChange('juros', Number(e.target.value))}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">
+                Valor final da venda (R$)
+              </label>
+              <input
+                type="text"
+                disabled
+                value={formatarReal(calcularValorLiquido(novaVenda))}
+                className="w-full px-3 py-2 border rounded-lg bg-gray-100"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={registrarVenda}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
+          >
+            Registrar Venda
+          </button>
         </div>
       </div>
     );
@@ -2344,9 +2354,11 @@ const SistemaLoja = () => {
       nome: '',
       fornecedor: '',
       estoqueMinimo: 0,
-      fotoUrl: '', // base64 armazenado
+      fotoUrl: '', // agora guarda o base64 da imagem
     });
 
+    // REPOSICAO_DEPOSITO = compra que entra no DEPÓSITO
+    // REPOSICAO_LOJA     = transferência DEPÓSITO -> LOJA
     const [tipoTransacao, setTipoTransacao] =
       useState('REPOSICAO_DEPOSITO');
 
@@ -2359,6 +2371,7 @@ const SistemaLoja = () => {
       valorTotal: 0,
     });
 
+    // Seleciona produto pelo código, preenchendo nome e fornecedor
     const selecionarProdutoCompra = (cod) => {
       const p = produtos.find((x) => x.codProduto === cod);
       if (p) {
@@ -2373,6 +2386,7 @@ const SistemaLoja = () => {
       }
     };
 
+    // Tratamento de upload de foto (arquivo -> base64)
     const handleFotoChange = (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
@@ -2390,6 +2404,7 @@ const SistemaLoja = () => {
       reader.readAsDataURL(file);
     };
 
+    // Salvar / atualizar produto no Supabase e refletir no estado local
     const salvarProduto = async () => {
       if (!produtoEdit.codProduto || !produtoEdit.nome) {
         alert('Informe código e nome do produto.');
@@ -2438,7 +2453,7 @@ const SistemaLoja = () => {
           return [...atual, novoItem];
         });
 
-        alert('Produto salvo/atualizado com sucesso!');
+        alert('Produto salvo/atualizado com sucesso na nuvem!');
 
         setProdutoEdit({
           codProduto: '',
@@ -2448,11 +2463,12 @@ const SistemaLoja = () => {
           fotoUrl: '',
         });
       } catch (e) {
-        console.error('Erro inesperado ao salvar produto:', e);
+        console.error('Erro inesperado em salvarProduto:', e);
         alert('Erro inesperado ao salvar produto.');
       }
     };
 
+    // Registrar compra (entrada em DEPÓSITO) ou transferência para LOJA
     const registrarCompra = async () => {
       if (!novaCompra.codProduto || !novaCompra.qtde) {
         alert('Informe produto e quantidade.');
@@ -2463,6 +2479,7 @@ const SistemaLoja = () => {
       let novoLanc = null;
 
       if (tipoTransacao === 'REPOSICAO_LOJA') {
+        // Movimento interno: Depósito -> Loja (sem valor financeiro)
         novoLanc = {
           data: novaCompra.data,
           tipo: 'REPOSICAO',
@@ -2476,10 +2493,12 @@ const SistemaLoja = () => {
           forma: 'INTERNO',
         };
 
+        // Atualiza estoque
         aplicarMovimentoEstoque({ ...novoLanc });
 
-        alert('Reposição de LOJA registrada!');
+        alert('Reposição de LOJA registrada no estoque!');
       } else {
+        // COMPRA -> entra no DEPÓSITO
         if (!novaCompra.valorTotal) {
           alert('Informe o valor total da compra.');
           return;
@@ -2504,8 +2523,10 @@ const SistemaLoja = () => {
           valorUnitario: valorUnit,
         };
 
+        // Atualiza estoque (entra no DEPÓSITO)
         aplicarMovimentoEstoque({ ...novoLanc });
 
+        // Atualiza valor unitário do produto em memória
         setProdutos((lista) => {
           const idx = lista.findIndex(
             (p) => p.codProduto === novaCompra.codProduto,
@@ -2519,6 +2540,7 @@ const SistemaLoja = () => {
             };
             return copia;
           }
+          // Se o produto ainda não existia em produtos
           return [
             ...lista,
             {
@@ -2532,11 +2554,48 @@ const SistemaLoja = () => {
           ];
         });
 
+        // Também grava o valor unitário no Supabase (tabela produtos)
+        try {
+          const prodAtual = produtos.find(
+            (p) => p.codProduto === novaCompra.codProduto,
+          );
+
+          const payloadUpsert = {
+            cod_produto: novaCompra.codProduto,
+            nome: novaCompra.produto || prodAtual?.nome || null,
+            fornecedor:
+              novoLanc.fornecedor ||
+              prodAtual?.fornecedor ||
+              null,
+            estoque_minimo: prodAtual?.estoqueMinimo ?? 0,
+            valor_unitario: valorUnit,
+            foto_url: prodAtual?.fotoUrl || null,
+          };
+
+          const { error: erroProd } = await supabase
+            .from('produtos')
+            .upsert(payloadUpsert, { onConflict: 'cod_produto' });
+
+          if (erroProd) {
+            console.error(
+              'Erro ao atualizar valor_unitario no Supabase (produtos):',
+              erroProd,
+            );
+          }
+        } catch (e) {
+          console.error(
+            'Erro inesperado ao atualizar valor_unitario (produtos):',
+            e,
+          );
+        }
+
         alert('Compra registrada e estoque atualizado!');
       }
 
+      // 1) Atualiza lançamentos em memória
       setLancamentos((atual) => [...atual, novoLanc]);
 
+      // 2) Persistir no Supabase (lançamentos)
       try {
         const { error } = await supabase.from('lancamentos').insert({
           data: novoLanc.data,
@@ -2550,7 +2609,7 @@ const SistemaLoja = () => {
           juros: novoLanc.juros ?? null,
           valor_liq: novoLanc.valorLiq,
           forma: novoLanc.forma,
-          nr_venda: null,
+          nr_venda: null, // compra / reposição não tem nº venda
           local: novoLanc.local,
           parcelas: null,
           inicio_pagto: null,
@@ -2562,14 +2621,21 @@ const SistemaLoja = () => {
         });
 
         if (error) {
-          console.error('Erro ao salvar compra no Supabase:', error);
+          console.error(
+            'Erro ao salvar lançamento no Supabase:',
+            error,
+          );
           alert('Erro ao salvar na nuvem.');
         }
       } catch (e) {
-        console.error('Erro inesperado ao salvar compra:', e);
-        alert('Erro inesperado.');
+        console.error(
+          'Erro inesperado ao salvar lançamento:',
+          e,
+        );
+        alert('Erro inesperado ao salvar na nuvem.');
       }
 
+      // Limpa formulário
       setNovaCompra({
         data: new Date().toISOString().split('T')[0],
         codProduto: '',
@@ -2589,6 +2655,7 @@ const SistemaLoja = () => {
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
+        {/* Info de carregamento dos produtos */}
         {carregandoProdutos && (
           <p className="text-sm text-gray-500 mb-2">
             Carregando produtos da nuvem...
@@ -2601,11 +2668,14 @@ const SistemaLoja = () => {
             Cadastro de Produtos e Estoque Mínimo
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Aqui você ajusta o estoque mínimo e cadastra foto do produto. Não
-            precisa mais informar endereço: o upload é salvo automático.
+            Aqui você ajusta o estoque mínimo de cada produto e
+            cadastra a foto e fornecedor. Não precisa mais informar
+            endereço de imagem: basta selecionar o arquivo e ele é
+            salvo junto ao produto.
           </p>
 
           <div className="md:flex md:items-start gap-6 mb-4">
+            {/* Campos */}
             <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
@@ -2625,7 +2695,10 @@ const SistemaLoja = () => {
                 />
                 <datalist id="listaProdCod">
                   {produtos.map((p, idx) => (
-                    <option key={idx} value={p.codProduto}>
+                    <option
+                      key={idx}
+                      value={p.codProduto}
+                    >
                       {p.nome}
                     </option>
                   ))}
@@ -2681,7 +2754,7 @@ const SistemaLoja = () => {
                 />
               </div>
 
-              {/* Upload Foto */}
+              {/* Upload da foto */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium mb-1">
                   Foto do Produto (upload)
@@ -2693,20 +2766,27 @@ const SistemaLoja = () => {
                   className="w-full text-sm"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Basta selecionar um arquivo. A imagem será salva no produto.
+                  Selecione uma imagem do computador ou do celular.
+                  Não é necessário informar endereço (link) da foto.
                 </p>
               </div>
             </div>
 
-            {/* Pré-visualização */}
+            {/* Pré-visualização da foto */}
             <div className="mt-4 md:mt-0 w-full md:w-64 lg:w-72">
-              <div className="text-sm font-medium mb-1">Pré-visualização</div>
-              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center bg-gray-50 overflow-hidden">
+              <div className="text-sm font-medium mb-1">
+                Pré-visualização
+              </div>
+              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
                 {produtoEdit.fotoUrl ? (
                   <img
                     src={produtoEdit.fotoUrl}
                     alt="Foto do produto"
                     className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = '';
+                    }}
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
@@ -2725,38 +2805,56 @@ const SistemaLoja = () => {
           </button>
         </div>
 
-        {/* COMPRAS / REPOSIÇÃO */}
+        {/* Compras / Reposição */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold mb-4">
             Aquisição de Estoque / Reposição
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Escolha o tipo de transação. Reposição Loja transfere do depósito para a loja;
-            Reposição Depósito registra compras.
+            Escolha o tipo de transação. Na{' '}
+            <strong>Reposição Depósito</strong>, você registra
+            compras que aumentam o estoque do depósito. Na{' '}
+            <strong>Reposição Loja</strong>, você apenas
+            transfere quantidade do depósito para a loja, sem
+            registrar valor.
           </p>
 
+          {/* Tipo de transação */}
           <div className="mb-4">
             <label className="block text-sm font-semibold mb-1">
               Transação
             </label>
             <select
               value={tipoTransacao}
-              onChange={(e) => setTipoTransacao(e.target.value)}
+              onChange={(e) =>
+                setTipoTransacao(e.target.value)
+              }
               className="w-full md:w-64 px-3 py-2 border rounded-lg text-sm"
             >
-              <option value="REPOSICAO_DEPOSITO">Reposição Depósito (Compra)</option>
-              <option value="REPOSICAO_LOJA">Reposição Loja (Transferência)</option>
+              <option value="REPOSICAO_DEPOSITO">
+                Reposição Depósito (Compra)
+              </option>
+              <option value="REPOSICAO_LOJA">
+                Reposição Loja (Transferência)
+              </option>
             </select>
           </div>
 
-          {/* Dados */}
+          {/* Dados da transação */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Data</label>
+              <label className="block text-sm font-medium mb-1">
+                Data
+              </label>
               <input
                 type="date"
                 value={novaCompra.data}
-                onChange={(e) => setNovaCompra({ ...novaCompra, data: e.target.value })}
+                onChange={(e) =>
+                  setNovaCompra({
+                    ...novaCompra,
+                    data: e.target.value,
+                  })
+                }
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
@@ -2767,46 +2865,63 @@ const SistemaLoja = () => {
               <input
                 type="text"
                 value={novaCompra.codProduto}
-                onChange={(e) => selecionarProdutoCompra(e.target.value)}
+                onChange={(e) =>
+                  selecionarProdutoCompra(e.target.value)
+                }
                 list="listaProdCodCompra"
                 className="w-full px-3 py-2 border rounded-lg"
               />
               <datalist id="listaProdCodCompra">
                 {produtos.map((p, idx) => (
-                  <option key={idx} value={p.codProduto}>
+                  <option
+                    key={idx}
+                    value={p.codProduto}
+                  >
                     {p.nome}
                   </option>
                 ))}
               </datalist>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Produto</label>
+              <label className="block text-sm font-medium mb-1">
+                Produto
+              </label>
               <input
                 type="text"
                 value={novaCompra.produto}
                 onChange={(e) =>
-                  setNovaCompra({ ...novaCompra, produto: e.target.value })
+                  setNovaCompra({
+                    ...novaCompra,
+                    produto: e.target.value,
+                  })
                 }
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Fornecedor</label>
+              <label className="block text-sm font-medium mb-1">
+                Fornecedor
+              </label>
               <input
                 type="text"
                 value={novaCompra.fornecedor}
                 onChange={(e) =>
-                  setNovaCompra({ ...novaCompra, fornecedor: e.target.value })
+                  setNovaCompra({
+                    ...novaCompra,
+                    fornecedor: e.target.value,
+                  })
                 }
-                disabled={isReposicaoLoja}
                 className="w-full px-3 py-2 border rounded-lg"
+                disabled={isReposicaoLoja}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Quantidade</label>
+              <label className="block text-sm font-medium mb-1">
+                Quantidade
+              </label>
               <input
                 type="number"
                 min={1}
@@ -2824,7 +2939,9 @@ const SistemaLoja = () => {
               <label className="block text-sm font-medium mb-1">
                 Valor Total (R$){' '}
                 {isReposicaoLoja && (
-                  <span className="text-[10px] text-gray-500">(não usado)</span>
+                  <span className="text-[10px] text-gray-500">
+                    (não usado)
+                  </span>
                 )}
               </label>
               <input
@@ -2838,17 +2955,25 @@ const SistemaLoja = () => {
                     valorTotal: Number(e.target.value),
                   })
                 }
-                disabled={isReposicaoLoja}
                 className={`w-full px-3 py-2 border rounded-lg ${
-                  isReposicaoLoja ? 'bg-gray-100 text-gray-500' : ''
+                  isReposicaoLoja
+                    ? 'bg-gray-100 text-gray-500'
+                    : ''
                 }`}
+                disabled={isReposicaoLoja}
               />
             </div>
             <div className="flex items-end">
               <div className="w-full bg-gray-50 rounded-lg p-3 text-sm">
-                <div className="text-xs text-gray-600">Valor Unitário aprox.:</div>
+                <div className="text-xs text-gray-600">
+                  Valor Unitário aprox.:
+                </div>
                 <div className="font-bold text-gray-800">
-                  {isReposicaoLoja ? '—' : formatarReal(valorUnitarioAtual || 0)}
+                  {isReposicaoLoja
+                    ? '—'
+                    : formatarReal(
+                        valorUnitarioAtual || 0,
+                      )}
                 </div>
               </div>
             </div>
@@ -2858,12 +2983,13 @@ const SistemaLoja = () => {
             onClick={registrarCompra}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
           >
-            Registrar Compra / Reposição
+            Registrar Compra / Reposição e Atualizar Estoque
           </button>
         </div>
       </div>
     );
   };
+
   // ========================================================================
   // TELA DE PROMISSÓRIAS
   // ========================================================================
