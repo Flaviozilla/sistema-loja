@@ -32,10 +32,10 @@ import { supabase } from './supabaseClient';
 // ===============================
 
 const defaultUsuarios = [
-  { login: 'admin',  senha: '1087', perfil: 'ADM',   nome: 'Administrador' },
-  { login: 'gerente', senha: '123', perfil: 'GER',   nome: 'Gerente Silva' },
-  { login: 'venda1',  senha: '123', perfil: 'VENDA', nome: 'Vendedor João' },
-  { login: 'venda2',  senha: '123', perfil: 'VENDA', nome: 'Vendedor Maria' },
+  { login: 'admin', senha: '1087', perfil: 'ADM', nome: 'Administrador' },
+  { login: 'gerente', senha: '123', perfil: 'GER', nome: 'Gerente Silva' },
+  { login: 'venda1', senha: '123', perfil: 'VENDA', nome: 'Vendedor João' },
+  { login: 'venda2', senha: '123', perfil: 'VENDA', nome: 'Vendedor Maria' },
 ];
 
 const defaultPromissorias = [];
@@ -50,7 +50,7 @@ const SistemaLoja = () => {
 
   // ===== Autenticação =====
   const [usuario, setUsuario] = useState(null); // nome do usuário logado
-  const [perfil, setPerfil] = useState(null);   // 'ADM' | 'GER' | 'VENDA'
+  const [perfil, setPerfil] = useState(null); // 'ADM' | 'GER' | 'VENDA'
   const [loginForm, setLoginForm] = useState({ login: '', senha: '' });
 
   const [telaAtiva, setTelaAtiva] = useState('login');
@@ -72,7 +72,7 @@ const SistemaLoja = () => {
   const [lancamentos, setLancamentos] = useState([]);
   const [carregandoLancamentos, setCarregandoLancamentos] = useState(true);
 
-  // Usuários (agora vindos do Supabase, mas com campo "senha" para o login)
+  // Usuários (vindos do Supabase, mas com campo "senha" para o login)
   const [usuarios, setUsuarios] = useState([]);
   const [carregandoUsuarios, setCarregandoUsuarios] = useState(true);
 
@@ -176,9 +176,7 @@ const SistemaLoja = () => {
         }
 
         if (payload.length > 0) {
-          const { error: insError } = await supabase
-            .from('estoque')
-            .insert(payload);
+          const { error: insError } = await supabase.from('estoque').insert(payload);
 
           if (insError) {
             console.error('Erro ao inserir estoque no Supabase:', insError);
@@ -259,7 +257,6 @@ const SistemaLoja = () => {
 
         if (error) {
           console.error('Erro ao carregar usuários do Supabase:', error);
-          // fallback: usa apenas os default locais
           setUsuarios(defaultUsuarios);
           return;
         }
@@ -648,7 +645,7 @@ const SistemaLoja = () => {
   const metricas = calcularMetricas();
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
-    // ========================================================================
+  // ========================================================================
   // TELA DE LOGIN
   // ========================================================================
   const TelaLogin = () => {
@@ -747,7 +744,6 @@ const SistemaLoja = () => {
                   Usuário
                 </label>
                 <input
-                  // autoFocus removido para não roubar o foco da senha
                   type="text"
                   value={loginForm.login}
                   onChange={(e) =>
@@ -1032,13 +1028,11 @@ const SistemaLoja = () => {
       'valorLiq',
     );
 
-    const dadosGraficoFormas = Object.keys(metricas.vendasPorForma).map(
-      (forma) => ({
-        name: forma,
-        value: metricas.vendasPorForma[forma].valor,
-        qtd: metricas.vendasPorForma[forma].qtd,
-      }),
-    );
+    const dadosGraficoFormas = Object.keys(metricas.vendasPorForma).map((forma) => ({
+      name: forma,
+      value: metricas.vendasPorForma[forma].valor,
+      qtd: metricas.vendasPorForma[forma].qtd,
+    }));
 
     const dadosGraficoVendedores = Object.keys(metricas.vendasPorVendedor).map(
       (vend) => ({
@@ -1326,7 +1320,7 @@ const SistemaLoja = () => {
     );
   };
   // ======== FIM DA PARTE 1/4 ========
-    // ========================================================================
+  // ========================================================================
   // TELA VENDEDOR (LANÇAMENTOS DE VENDAS)
   // ========================================================================
   const TelaVendedor = () => {
@@ -1348,9 +1342,10 @@ const SistemaLoja = () => {
       local: 'LOJA',
       parcelas: 1,
       inicioPagamento: '',
+      fotoUrl: '',
     });
 
-    // Lista de produtos disponíveis no ESTOQUE (únicos por código)
+    // lista de produtos disponíveis no estoque (únicos por código)
     const produtosEstoque = Array.from(
       new Map(
         estoque.map((e) => [
@@ -1362,6 +1357,28 @@ const SistemaLoja = () => {
         ]),
       ).values(),
     );
+
+    // pega valor unitário padrão do produto:
+    // 1) produtos (tabela de cadastro)
+    // 2) se não tiver, última COMPRA daquele produto nos lançamentos
+    const obterValorUnitario = (cod) => {
+      if (!cod) return 0;
+
+      const prodCad = produtos.find((p) => p.codProduto === cod);
+      if (prodCad && prodCad.valorUnitario && prodCad.valorUnitario > 0) {
+        return prodCad.valorUnitario;
+      }
+
+      const ultCompra = [...lancamentos]
+        .filter((l) => l.tipo === 'COMPRA' && l.codProduto === cod && l.qtde > 0)
+        .sort((a, b) => new Date(b.data) - new Date(a.data))[0];
+
+      if (ultCompra && ultCompra.valorLiq && ultCompra.qtde) {
+        return Number(ultCompra.valorLiq) / Number(ultCompra.qtde);
+      }
+
+      return 0;
+    };
 
     const encontrarInfoProduto = (cod, nome) => {
       let item =
@@ -1382,17 +1399,15 @@ const SistemaLoja = () => {
       if (!item) return null;
 
       const prodCad = produtos.find((p) => p.codProduto === item.codProduto);
-      const valorUnitario =
-        prodCad && typeof prodCad.valorUnitario === 'number'
-          ? prodCad.valorUnitario
-          : 0;
+      const valorUnitario = obterValorUnitario(item.codProduto);
+      const fotoUrl = prodCad && prodCad.fotoUrl ? prodCad.fotoUrl : '';
 
       return {
         codProduto: item.codProduto,
         produto: item.produto,
         fornecedor: item.fornecedor,
         valorUnitario,
-        fotoUrl: prodCad?.fotoUrl || '',
+        fotoUrl,
       };
     };
 
@@ -1407,6 +1422,7 @@ const SistemaLoja = () => {
         atual.codProduto = info.codProduto;
         atual.produto = info.produto;
         atual.fornecedor = info.fornecedor || '';
+        atual.fotoUrl = info.fotoUrl || '';
 
         const qtdeNum = Number(atual.qtde) || 0;
         if (info.valorUnitario && qtdeNum > 0) {
@@ -1432,7 +1448,7 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        handleChange('codProduto', cod, true);
+        setNovaVenda((anterior) => ({ ...anterior, codProduto: cod }));
       }
     };
 
@@ -1441,7 +1457,7 @@ const SistemaLoja = () => {
       if (info) {
         atualizarVendaComProduto(info);
       } else {
-        handleChange('produto', nome, true);
+        setNovaVenda((anterior) => ({ ...anterior, produto: nome }));
       }
     };
 
@@ -1449,7 +1465,6 @@ const SistemaLoja = () => {
       setNovaVenda((anterior) => {
         let atual = { ...anterior, [campo]: valor };
 
-        // Data → recalcula número da venda e início de pagamento (crédito)
         if (campo === 'data') {
           atual.nrVenda = gerarNumeroVenda(atual.data);
 
@@ -1458,7 +1473,6 @@ const SistemaLoja = () => {
           }
         }
 
-        // Forma de pagamento → controla início de pagamento
         if (campo === 'forma') {
           if (valor === 'CREDITO') {
             atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
@@ -1469,21 +1483,19 @@ const SistemaLoja = () => {
           }
         }
 
-        // Quantidade → recalcula valor bruto (valor unitário x qtde)
         if (campo === 'qtde') {
           const infoProd = encontrarInfoProduto(atual.codProduto, atual.produto);
           const qtdeNum = Number(valor) || 0;
-          if (infoProd && infoProd.valorUnitario && qtdeNum > 0) {
-            atual.valorBruto = infoProd.valorUnitario * qtdeNum;
+          const valorUnit = infoProd ? infoProd.valorUnitario : 0;
+          if (valorUnit && qtdeNum > 0) {
+            atual.valorBruto = valorUnit * qtdeNum;
           }
         }
 
-        // Desconto / juros → só mexem no valor líquido
-        if (['desconto', 'juros'].includes(campo)) {
-          // nada no valorBruto, apenas recalcular valorLiq
+        if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
+          atual.valorLiq = calcularValorLiquido(atual);
         }
 
-        // Recalcular valor bruto quando mudar produto/código
         if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
           const info = encontrarInfoProduto(
             campo === 'codProduto' ? valor : atual.codProduto,
@@ -1493,15 +1505,14 @@ const SistemaLoja = () => {
             atual.codProduto = info.codProduto;
             atual.produto = info.produto;
             atual.fornecedor = info.fornecedor || atual.fornecedor;
+            atual.fotoUrl = info.fotoUrl || atual.fotoUrl;
             const qtdeNum = Number(atual.qtde) || 0;
             if (info.valorUnitario && qtdeNum > 0) {
               atual.valorBruto = info.valorUnitario * qtdeNum;
             }
+            atual.valorLiq = calcularValorLiquido(atual);
           }
         }
-
-        // Valor líquido sempre recalculado por último
-        atual.valorLiq = calcularValorLiquido(atual);
 
         return atual;
       });
@@ -1541,8 +1552,8 @@ const SistemaLoja = () => {
         data: lancVenda.data,
       });
 
-      // 3) Se for promissória, registra também
-      if (lancVenda.forma.toUpperCase() === 'PROMISSORIA') {
+      // 3) Se for promissória, registra também no controle local de promissórias
+      if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
         const promBase = {
           nrVenda: lancVenda.nrVenda,
           cliente: lancVenda.cliente,
@@ -1598,7 +1609,7 @@ const SistemaLoja = () => {
         }
       }
 
-      // 4) Salvar venda no Supabase (colunas certas)
+      // 4) Salvar venda no Supabase
       try {
         const nrVendaNumero =
           parseInt(
@@ -1623,7 +1634,7 @@ const SistemaLoja = () => {
           nr_venda: nrVendaNumero,
           local: 'LOJA',
           parcelas:
-            lancVenda.forma.toUpperCase() === 'PROMISSORIA'
+            (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
               ? lancVenda.parcelas
               : null,
           inicio_pagto: lancVenda.inicioPagamento || null,
@@ -1632,7 +1643,7 @@ const SistemaLoja = () => {
           telefone: lancVenda.telefone,
           vendedor: lancVenda.vendedor,
           status_recb:
-            lancVenda.forma.toUpperCase() === 'PROMISSORIA'
+            (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
               ? 'PENDENTE'
               : 'RECEBIDO',
         });
@@ -1666,15 +1677,9 @@ const SistemaLoja = () => {
         local: 'LOJA',
         parcelas: 1,
         inicioPagamento: '',
+        fotoUrl: '',
       });
     };
-
-    // ======= INTERFACE =======
-    // Foto do produto selecionado (se houver)
-    const infoProdSelecionado =
-      novaVenda.codProduto || novaVenda.produto
-        ? encontrarInfoProduto(novaVenda.codProduto, novaVenda.produto)
-        : null;
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
@@ -1685,230 +1690,238 @@ const SistemaLoja = () => {
             automaticamente.
           </p>
 
-          {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Data</label>
-              <input
-                type="date"
-                value={novaVenda.data}
-                onChange={(e) => handleChange('data', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Nr Venda</label>
-              <input
-                type="text"
-                value={novaVenda.nrVenda}
-                onChange={(e) => handleChange('nrVenda', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-                placeholder="Gerado automaticamente"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Forma de pagamento</label>
-              <select
-                value={novaVenda.forma}
-                onChange={(e) => handleChange('forma', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
+          <div className="flex flex-col md:flex-row gap-6">
+            {/* FORMULÁRIO PRINCIPAL */}
+            <div className="flex-1">
+              {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Data</label>
+                  <input
+                    type="date"
+                    value={novaVenda.data}
+                    onChange={(e) => handleChange('data', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Nr Venda</label>
+                  <input
+                    type="text"
+                    value={novaVenda.nrVenda}
+                    onChange={(e) => handleChange('nrVenda', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Gerado automaticamente"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Forma de pagamento</label>
+                  <select
+                    value={novaVenda.forma}
+                    onChange={(e) => handleChange('forma', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="PIX">PIX</option>
+                    <option value="DEBITO">Débito</option>
+                    <option value="CREDITO">Crédito</option>
+                    <option value="DINHEIRO">Dinheiro</option>
+                    <option value="PROMISSORIA">Promissória</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Qtd Parcelas</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={novaVenda.parcelas}
+                    onChange={(e) => handleChange('parcelas', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">
+                    Data inicial de pagamento
+                  </label>
+                  <input
+                    type="date"
+                    value={novaVenda.inicioPagamento}
+                    onChange={(e) => handleChange('inicioPagamento', e.target.value)}
+                    disabled={novaVenda.forma === 'CREDITO'}
+                    className={`w-full px-3 py-2 border rounded-lg ${
+                      novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
+                    }`}
+                  />
+                  {novaVenda.forma === 'CREDITO' && (
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Para crédito, o início é calculado para o dia 5 do mês seguinte.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Linha 2 - Cliente */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Cliente</label>
+                  <input
+                    type="text"
+                    value={novaVenda.cliente}
+                    onChange={(e) => handleChange('cliente', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={novaVenda.email}
+                    onChange={(e) => handleChange('email', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Telefone</label>
+                  <input
+                    type="text"
+                    value={novaVenda.telefone}
+                    onChange={(e) => handleChange('telefone', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Linha 3 - Produto */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Código Produto</label>
+                  <select
+                    value={novaVenda.codProduto}
+                    onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Selecione...</option>
+                    {produtosEstoque.map((p) => (
+                      <option key={p.codProduto} value={p.codProduto}>
+                        {p.codProduto}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Produto</label>
+                  <select
+                    value={novaVenda.produto}
+                    onChange={(e) => selecionarProdutoPorNome(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Selecione...</option>
+                    {produtosEstoque.map((p) => (
+                      <option key={p.codProduto} value={p.produto}>
+                        {p.produto}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Fornecedor</label>
+                  <input
+                    type="text"
+                    value={novaVenda.fornecedor}
+                    onChange={(e) => handleChange('fornecedor', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Quantidade</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={novaVenda.qtde}
+                    onChange={(e) => handleChange('qtde', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Linha 4 - Valores */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                <div>
+                  <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.valorBruto}
+                    onChange={(e) => handleChange('valorBruto', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Desconto (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.desconto}
+                    onChange={(e) => handleChange('desconto', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Juros (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={novaVenda.juros}
+                    onChange={(e) => handleChange('juros', Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">
+                    Valor final da venda (R$)
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={formatarReal(calcularValorLiquido(novaVenda))}
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-100"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={registrarVenda}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
               >
-                <option value="PIX">PIX</option>
-                <option value="DEBITO">Débito</option>
-                <option value="CREDITO">Crédito</option>
-                <option value="DINHEIRO">Dinheiro</option>
-                <option value="PROMISSORIA">Promissória</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Qtd Parcelas</label>
-              <input
-                type="number"
-                min={1}
-                value={novaVenda.parcelas}
-                onChange={(e) => handleChange('parcelas', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Início do Pagamento</label>
-              <input
-                type="date"
-                value={novaVenda.inicioPagamento}
-                onChange={(e) => handleChange('inicioPagamento', e.target.value)}
-                disabled={novaVenda.forma === 'CREDITO'}
-                className={`w-full px-3 py-2 border rounded-lg ${
-                  novaVenda.forma === 'CREDITO' ? 'bg-gray-100 text-gray-500' : ''
-                }`}
-              />
-              {novaVenda.forma === 'CREDITO' && (
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Para crédito, o início é calculado para o dia 5 do mês seguinte.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Linha 2 - Cliente */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Cliente</label>
-              <input
-                type="text"
-                value={novaVenda.cliente}
-                onChange={(e) => handleChange('cliente', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">E-mail</label>
-              <input
-                type="email"
-                value={novaVenda.email}
-                onChange={(e) => handleChange('email', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Telefone</label>
-              <input
-                type="text"
-                value={novaVenda.telefone}
-                onChange={(e) => handleChange('telefone', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-          </div>
-
-          {/* Linha 3 - Produto + foto ao lado */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 text-sm">
-            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block font-semibold mb-1">Código Produto</label>
-                <select
-                  value={novaVenda.codProduto}
-                  onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Selecione...</option>
-                  {produtosEstoque.map((p) => (
-                    <option key={p.codProduto} value={p.codProduto}>
-                      {p.codProduto}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Produto</label>
-                <select
-                  value={novaVenda.produto}
-                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="">Selecione...</option>
-                  {produtosEstoque.map((p) => (
-                    <option key={p.codProduto} value={p.produto}>
-                      {p.produto}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Fornecedor</label>
-                <input
-                  type="text"
-                  value={novaVenda.fornecedor}
-                  onChange={(e) => handleChange('fornecedor', e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Quantidade</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={novaVenda.qtde}
-                  onChange={(e) => handleChange('qtde', Number(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-lg"
-                />
-              </div>
+                Registrar Venda
+              </button>
             </div>
 
-            {/* Foto do produto */}
-            <div className="flex flex-col">
-              <label className="block font-semibold mb-1">Foto do produto</label>
+            {/* PRÉ-VISUALIZAÇÃO DA FOTO */}
+            <div className="w-full md:w-72 lg:w-80">
+              <div className="text-sm font-semibold mb-1">Foto do produto</div>
               <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
-                {infoProdSelecionado?.fotoUrl ? (
+                {novaVenda.fotoUrl ? (
                   <img
-                    src={infoProdSelecionado.fotoUrl}
+                    src={novaVenda.fotoUrl}
                     alt="Foto do produto"
                     className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = '';
+                    }}
                   />
                 ) : (
                   <span className="text-xs text-gray-500 text-center px-2">
-                    A imagem cadastrada para o produto aparecerá aqui.
+                    Ao selecionar um produto com foto cadastrada, a imagem aparecerá aqui.
                   </span>
                 )}
               </div>
             </div>
           </div>
-
-          {/* Linha 4 - Valores */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-            <div>
-              <label className="block font-semibold mb-1">Valor Bruto (R$)</label>
-              <input
-                type="text"
-                disabled
-                value={formatarReal(novaVenda.valorBruto)}
-                className="w-full px-3 py-2 border rounded-lg bg-gray-100"
-              />
-              <p className="text-[10px] text-gray-500 mt-1">
-                Calculado automaticamente: valor unitário do produto × quantidade.
-              </p>
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Desconto (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={novaVenda.desconto}
-                onChange={(e) => handleChange('desconto', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Juros (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={novaVenda.juros}
-                onChange={(e) => handleChange('juros', Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">
-                Valor final da venda (R$)
-              </label>
-              <input
-                type="text"
-                disabled
-                value={formatarReal(calcularValorLiquido(novaVenda))}
-                className="w-full px-3 py-2 border rounded-lg bg-gray-100"
-              />
-            </div>
-          </div>
-
-          <button
-            onClick={registrarVenda}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
-          >
-            Registrar Venda
-          </button>
         </div>
       </div>
     );
@@ -1983,46 +1996,52 @@ const SistemaLoja = () => {
               <table className="w-full border border-gray-300 text-xs md:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">Data</th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">Tipo</th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
+                      Data
+                    </th>
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
+                      Tipo
+                    </th>
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Nr Venda
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Cliente
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       E-mail Cliente
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Vendedor
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Produto
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-right">Qtd</th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-right">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
+                      Qtd
+                    </th>
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Valor Bruto
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-right">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Desconto
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-right">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Juros
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-right">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Valor Líquido
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Forma Pgto
                     </th>
                     <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Qtd Parcelas
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Local
                     </th>
-                    <th className="px-2 py-2 border-b border-gray-300 text-left">
+                    <th className="px-2 py-2 border-b border-gray-300 text-center">
                       Status
                     </th>
                   </tr>
@@ -2030,40 +2049,42 @@ const SistemaLoja = () => {
                 <tbody>
                   {lancFiltrados.map((l, idx) => (
                     <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50">
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1 text-center">
                         {l.data ? formatarDataBR(l.data) : ''}
                       </td>
-                      <td className="px-2 py-1">{l.tipo}</td>
-                      <td className="px-2 py-1">{l.nrVenda || '-'}</td>
-                      <td className="px-2 py-1">{l.cliente || '-'}</td>
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1 text-center">{l.tipo}</td>
+                      <td className="px-2 py-1 text-center">{l.nrVenda || '-'}</td>
+                      <td className="px-2 py-1 text-center">{l.cliente || '-'}</td>
+                      <td className="px-2 py-1 text-center">
                         {l.email ? (
                           <span className="text-blue-700 underline">{l.email}</span>
                         ) : (
                           '-'
                         )}
                       </td>
-                      <td className="px-2 py-1">{l.vendedor || '-'}</td>
-                      <td className="px-2 py-1">{l.produto || l.categoria || '-'}</td>
-                      <td className="px-2 py-1 text-right">{l.qtde || '-'}</td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1 text-center">{l.vendedor || '-'}</td>
+                      <td className="px-2 py-1 text-center">
+                        {l.produto || l.categoria || '-'}
+                      </td>
+                      <td className="px-2 py-1 text-center">{l.qtde || '-'}</td>
+                      <td className="px-2 py-1 text-center">
                         {l.valorBruto != null ? formatarReal(l.valorBruto) : '-'}
                       </td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1 text-center">
                         {l.desconto != null ? formatarReal(l.desconto) : '-'}
                       </td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1 text-center">
                         {l.juros != null ? formatarReal(l.juros) : '-'}
                       </td>
-                      <td className="px-2 py-1 text-right">
+                      <td className="px-2 py-1 text-center">
                         {l.valorLiq != null ? formatarReal(l.valorLiq) : '-'}
                       </td>
-                      <td className="px-2 py-1">{l.forma || '-'}</td>
+                      <td className="px-2 py-1 text-center">{l.forma || '-'}</td>
                       <td className="px-2 py-1 text-center">
                         {l.parcelas != null ? l.parcelas : '-'}
                       </td>
-                      <td className="px-2 py-1">{l.local || '-'}</td>
-                      <td className="px-2 py-1">{l.statusRecb || '-'}</td>
+                      <td className="px-2 py-1 text-center">{l.local || '-'}</td>
+                      <td className="px-2 py-1 text-center">{l.statusRecb || '-'}</td>
                     </tr>
                   ))}
                   {lancFiltrados.length === 0 && (
@@ -2191,9 +2212,9 @@ const SistemaLoja = () => {
             </div>
           </div>
 
-          {/* Painéis Resumo */}
+          {/* Resumo estilo painel (2 colunas, colorido) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Loja */}
+            {/* Total Loja */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #16a34a, #166534)' }}
@@ -2203,17 +2224,21 @@ const SistemaLoja = () => {
                   <div className="text-xs uppercase opacity-80 font-semibold">
                     Total na Loja
                   </div>
-                  <div className="text-2xl font-extrabold">{totalLoja} un.</div>
+                  <div className="text-2xl font-extrabold text-center">
+                    {totalLoja} un.
+                  </div>
                 </div>
                 <Package className="w-8 h-8 opacity-80" />
               </div>
               <div className="text-xs opacity-90">
                 Valor estimado em estoque:
-                <span className="font-bold ml-1">{formatarReal(totalValorLoja)}</span>
+                <span className="font-bold ml-1">
+                  {formatarReal(totalValorLoja)}
+                </span>
               </div>
             </div>
 
-            {/* Depósito */}
+            {/* Total Depósito */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #0ea5e9, #0369a1)' }}
@@ -2223,17 +2248,21 @@ const SistemaLoja = () => {
                   <div className="text-xs uppercase opacity-80 font-semibold">
                     Total no Depósito
                   </div>
-                  <div className="text-2xl font-extrabold">{totalDeposito} un.</div>
+                  <div className="text-2xl font-extrabold text-center">
+                    {totalDeposito} un.
+                  </div>
                 </div>
                 <Package className="w-8 h-8 opacity-80" />
               </div>
               <div className="text-xs opacity-90">
                 Valor estimado em estoque:
-                <span className="font-bold ml-1">{formatarReal(totalValorDeposito)}</span>
+                <span className="font-bold ml-1">
+                  {formatarReal(totalValorDeposito)}
+                </span>
               </div>
             </div>
 
-            {/* Mais antigo depósito */}
+            {/* Item mais antigo no Depósito */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #f97316, #c2410c)' }}
@@ -2243,7 +2272,9 @@ const SistemaLoja = () => {
               </div>
               {itemMaisAntigoDeposito ? (
                 <>
-                  <div className="font-semibold text-sm">{itemMaisAntigoDeposito.produto}</div>
+                  <div className="font-semibold text-sm">
+                    {itemMaisAntigoDeposito.produto}
+                  </div>
                   <div className="text-xs mt-1">
                     {itemMaisAntigoDeposito.qtde} un. —{' '}
                     {calcularDiasEstoque(itemMaisAntigoDeposito)} dias em estoque
@@ -2254,7 +2285,7 @@ const SistemaLoja = () => {
               )}
             </div>
 
-            {/* Menos tempo loja */}
+            {/* Item com menor tempo na Loja (mais recente) */}
             <div
               className="rounded-xl p-4 text-white shadow-md"
               style={{ background: 'linear-gradient(to bottom right, #a855f7, #6d28d9)' }}
@@ -2264,7 +2295,9 @@ const SistemaLoja = () => {
               </div>
               {itemMenosTempoLoja ? (
                 <>
-                  <div className="font-semibold text-sm">{itemMenosTempoLoja.produto}</div>
+                  <div className="font-semibold text-sm">
+                    {itemMenosTempoLoja.produto}
+                  </div>
                   <div className="text-xs mt-1">
                     {itemMenosTempoLoja.qtde} un. —{' '}
                     {calcularDiasEstoque(itemMenosTempoLoja)} dias em estoque
@@ -2280,26 +2313,27 @@ const SistemaLoja = () => {
           <div className="overflow-x-auto text-sm">
             <table className="w-full">
               <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-3 py-2 text-left">Código</th>
-                  <th className="px-3 py-2 text-left">Produto</th>
-                  <th className="px-3 py-2 text-left">Fornecedor</th>
-                  <th className="px-3 py-2 text-left">Local</th>
-                  <th className="px-3 py-2 text-right">Quantidade</th>
-                  <th className="px-3 py-2 text-right">Dias em Estoque</th>
-                  <th className="px-3 py-2 text-center">Status</th>
-                </tr>
-              </thead>
+  <tr>
+    <th className="px-3 py-2 text-center">Código</th>
+    <th className="px-3 py-2 text-center">Produto</th>
+    <th className="px-3 py-2 text-center">Fornecedor</th>
+    <th className="px-3 py-2 text-center">Local</th>
+    <th className="px-3 py-2 text-center">Quantidade</th>
+    <th className="px-3 py-2 text-center">Dias em Estoque</th>
+    <th className="px-3 py-2 text-center">Status</th>
+  </tr>
+</thead>
+
               <tbody>
                 {estoqueFiltrado.map((item, idx) => {
                   const status = statusEstoque(item.codProduto);
                   const dias = calcularDiasEstoque(item);
                   return (
                     <tr key={idx} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-2">{item.codProduto}</td>
-                      <td className="px-3 py-2">{item.produto}</td>
-                      <td className="px-3 py-2">{item.fornecedor}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 text-center">{item.codProduto}</td>
+                      <td className="px-3 py-2 text-center">{item.produto}</td>
+                      <td className="px-3 py-2 text-center">{item.fornecedor}</td>
+                      <td className="px-3 py-2 text-center">
                         <span
                           className={`px-2 py-1 rounded text-xs ${
                             item.local === 'LOJA'
@@ -2310,8 +2344,8 @@ const SistemaLoja = () => {
                           {item.local}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right">{item.qtde}</td>
-                      <td className="px-3 py-2 text-right">{dias}</td>
+                      <td className="px-3 py-2 text-center">{item.qtde}</td>
+                      <td className="px-3 py-2 text-center">{dias}</td>
                       <td className="px-3 py-2 text-center">
                         <span
                           className={`px-2 py-1 rounded text-xs ${
@@ -2328,7 +2362,10 @@ const SistemaLoja = () => {
                 })}
                 {estoqueFiltrado.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-4 text-center text-xs text-gray-500">
+                    <td
+                      colSpan={7}
+                      className="px-3 py-4 text-center text-xs text-gray-500"
+                    >
                       Nenhum item de estoque cadastrado ainda.
                     </td>
                   </tr>
@@ -2337,8 +2374,9 @@ const SistemaLoja = () => {
             </table>
           </div>
 
-          <div className="mt-3 text-xs text-gray-500">
-            Dica: você pode imprimir esta tela pelo navegador para registrar o estoque do dia.
+          <div className="mt-3 text-xs text-gray-500 text-center">
+            Dica: você pode imprimir esta tela pelo navegador para registrar o estoque do
+            dia.
           </div>
         </div>
       </div>
@@ -2359,8 +2397,7 @@ const SistemaLoja = () => {
 
     // REPOSICAO_DEPOSITO = compra que entra no DEPÓSITO
     // REPOSICAO_LOJA     = transferência DEPÓSITO -> LOJA
-    const [tipoTransacao, setTipoTransacao] =
-      useState('REPOSICAO_DEPOSITO');
+    const [tipoTransacao, setTipoTransacao] = useState('REPOSICAO_DEPOSITO');
 
     const [novaCompra, setNovaCompra] = useState({
       data: new Date().toISOString().split('T')[0],
@@ -2505,9 +2542,7 @@ const SistemaLoja = () => {
         }
 
         const valorUnit =
-          qtdeNum > 0
-            ? Number(novaCompra.valorTotal) / qtdeNum
-            : 0;
+          qtdeNum > 0 ? Number(novaCompra.valorTotal) / qtdeNum : 0;
 
         novoLanc = {
           data: novaCompra.data,
@@ -2554,48 +2589,13 @@ const SistemaLoja = () => {
           ];
         });
 
-        // Também grava o valor unitário no Supabase (tabela produtos)
-        try {
-          const prodAtual = produtos.find(
-            (p) => p.codProduto === novaCompra.codProduto,
-          );
-
-          const payloadUpsert = {
-            cod_produto: novaCompra.codProduto,
-            nome: novaCompra.produto || prodAtual?.nome || null,
-            fornecedor:
-              novoLanc.fornecedor ||
-              prodAtual?.fornecedor ||
-              null,
-            estoque_minimo: prodAtual?.estoqueMinimo ?? 0,
-            valor_unitario: valorUnit,
-            foto_url: prodAtual?.fotoUrl || null,
-          };
-
-          const { error: erroProd } = await supabase
-            .from('produtos')
-            .upsert(payloadUpsert, { onConflict: 'cod_produto' });
-
-          if (erroProd) {
-            console.error(
-              'Erro ao atualizar valor_unitario no Supabase (produtos):',
-              erroProd,
-            );
-          }
-        } catch (e) {
-          console.error(
-            'Erro inesperado ao atualizar valor_unitario (produtos):',
-            e,
-          );
-        }
-
         alert('Compra registrada e estoque atualizado!');
       }
 
       // 1) Atualiza lançamentos em memória
       setLancamentos((atual) => [...atual, novoLanc]);
 
-      // 2) Persistir no Supabase (lançamentos)
+      // 2) Persistir no Supabase
       try {
         const { error } = await supabase.from('lancamentos').insert({
           data: novoLanc.data,
@@ -2609,7 +2609,7 @@ const SistemaLoja = () => {
           juros: novoLanc.juros ?? null,
           valor_liq: novoLanc.valorLiq,
           forma: novoLanc.forma,
-          nr_venda: null, // compra / reposição não tem nº venda
+          nr_venda: null,
           local: novoLanc.local,
           parcelas: null,
           inicio_pagto: null,
@@ -2621,17 +2621,11 @@ const SistemaLoja = () => {
         });
 
         if (error) {
-          console.error(
-            'Erro ao salvar lançamento no Supabase:',
-            error,
-          );
+          console.error('Erro ao salvar lançamento no Supabase:', error);
           alert('Erro ao salvar na nuvem.');
         }
       } catch (e) {
-        console.error(
-          'Erro inesperado ao salvar lançamento:',
-          e,
-        );
+        console.error('Erro inesperado ao salvar lançamento:', e);
         alert('Erro inesperado ao salvar na nuvem.');
       }
 
@@ -2655,7 +2649,6 @@ const SistemaLoja = () => {
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
-        {/* Info de carregamento dos produtos */}
         {carregandoProdutos && (
           <p className="text-sm text-gray-500 mb-2">
             Carregando produtos da nuvem...
@@ -2668,15 +2661,14 @@ const SistemaLoja = () => {
             Cadastro de Produtos e Estoque Mínimo
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Aqui você ajusta o estoque mínimo de cada produto e
-            cadastra a foto e fornecedor. Não precisa mais informar
-            endereço de imagem: basta selecionar o arquivo e ele é
-            salvo junto ao produto.
+            Aqui você ajusta o estoque mínimo de cada produto e cadastra a foto e o
+            fornecedor. Não precisa mais informar endereço de imagem: basta selecionar
+            o arquivo e ele é salvo junto ao produto.
           </p>
 
           <div className="md:flex md:items-start gap-6 mb-4">
             {/* Campos */}
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Código
@@ -2695,10 +2687,7 @@ const SistemaLoja = () => {
                 />
                 <datalist id="listaProdCod">
                   {produtos.map((p, idx) => (
-                    <option
-                      key={idx}
-                      value={p.codProduto}
-                    >
+                    <option key={idx} value={p.codProduto}>
                       {p.nome}
                     </option>
                   ))}
@@ -2820,8 +2809,8 @@ const SistemaLoja = () => {
           </p>
 
           {/* Tipo de transação */}
-          <div className="mb-4">
-            <label className="block text-sm font-semibold mb-1">
+          <div className="mb-4 text-sm">
+            <label className="block font-semibold mb-1">
               Transação
             </label>
             <select
@@ -2841,7 +2830,7 @@ const SistemaLoja = () => {
           </div>
 
           {/* Dados da transação */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
             <div>
               <label className="block text-sm font-medium mb-1">
                 Data
@@ -2873,10 +2862,7 @@ const SistemaLoja = () => {
               />
               <datalist id="listaProdCodCompra">
                 {produtos.map((p, idx) => (
-                  <option
-                    key={idx}
-                    value={p.codProduto}
-                  >
+                  <option key={idx} value={p.codProduto}>
                     {p.nome}
                   </option>
                 ))}
@@ -2917,7 +2903,7 @@ const SistemaLoja = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
             <div>
               <label className="block text-sm font-medium mb-1">
                 Quantidade
@@ -2956,24 +2942,18 @@ const SistemaLoja = () => {
                   })
                 }
                 className={`w-full px-3 py-2 border rounded-lg ${
-                  isReposicaoLoja
-                    ? 'bg-gray-100 text-gray-500'
-                    : ''
+                  isReposicaoLoja ? 'bg-gray-100 text-gray-500' : ''
                 }`}
                 disabled={isReposicaoLoja}
               />
             </div>
             <div className="flex items-end">
-              <div className="w-full bg-gray-50 rounded-lg p-3 text-sm">
+              <div className="w-full bg-gray-50 rounded-lg p-3 text-sm text-center">
                 <div className="text-xs text-gray-600">
                   Valor Unitário aprox.:
                 </div>
                 <div className="font-bold text-gray-800">
-                  {isReposicaoLoja
-                    ? '—'
-                    : formatarReal(
-                        valorUnitarioAtual || 0,
-                      )}
+                  {isReposicaoLoja ? '—' : formatarReal(valorUnitarioAtual || 0)}
                 </div>
               </div>
             </div>
@@ -2999,26 +2979,19 @@ const SistemaLoja = () => {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    const ehAtrasada = (p) => {
-      if (!p.dataInicio) return false;
-      const d = new Date(p.dataInicio);
-      if (Number.isNaN(d.getTime())) return false;
-      d.setHours(0, 0, 0, 0);
+    const listaFiltradaBase = promissorias.map((p) => ({ ...p }));
 
-      const dataJaPassou = d < hoje;
-      const saldoNaoZerado = (p.valor || 0) > 0 && p.status !== 'QUITADO';
-      const possuiParcelaAtrasada = (p.parcelasAtrasadas || 0) > 0;
+    const listaFiltrada = listaFiltradaBase.filter((p) => {
+      if (!mostrarSomenteAtrasadas) return true;
 
-      // Consideramos atrasada se:
-      // - a data de início já passou
-      // - ainda há saldo
-      // - e há parcela atrasada OU status segue ABERTO
-      return dataJaPassou && saldoNaoZerado && (possuiParcelaAtrasada || p.status === 'ABERTO');
-    };
+      const dataIni = p.dataInicio ? new Date(p.dataInicio) : null;
+      if (!dataIni) return false;
+      dataIni.setHours(0, 0, 0, 0);
 
-    const listaFiltrada = promissorias.filter((p) =>
-      mostrarSomenteAtrasadas ? ehAtrasada(p) : true,
-    );
+      const emAtraso = dataIni < hoje && (p.parcelasAtrasadas || 0) > 0;
+
+      return emAtraso;
+    });
 
     const toggleSelecao = async (index) => {
       const prom = promissorias[index];
@@ -3054,15 +3027,13 @@ const SistemaLoja = () => {
         alert('Nenhuma promissória selecionada.');
         return;
       }
-      const emails = selecionados
-        .map((p) => `${p.cliente} <${p.email || 'sem-email'}>`)
-        .join('\n');
+      const emails = selecionados.map((p) => `${p.cliente} <${p.email}>`).join('\n');
       alert(
-        `Simulação de envio de e-mails para:\n\n${emails}\n\n(A integração real de e-mail entra aqui depois.)`,
+        `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`,
       );
     };
 
-    const consolidados = Object.values(
+    const consolidadoPorCliente = Object.values(
       listaFiltrada.reduce((acc, p) => {
         if (!acc[p.cliente]) {
           acc[p.cliente] = {
@@ -3080,23 +3051,23 @@ const SistemaLoja = () => {
 
     return (
       <div className="p-6 space-y-6" style={appStyle}>
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          {/* Cabeçalho e filtros */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
             <div>
               <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
               <p className="text-sm text-gray-600">
-                Selecione as vendas para contato e acompanhe quem está com parcelas em atraso.
+                Selecione as vendas para contato e acompanhe quem está com parcelas
+                atrasadas.
               </p>
             </div>
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm">
+            <div className="flex items-center gap-4 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={mostrarSomenteAtrasadas}
                   onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
                 />
-                Mostrar apenas atrasadas
+                Mostrar apenas com parcelas em atraso
               </label>
               <button
                 onClick={enviarEmails}
@@ -3108,29 +3079,22 @@ const SistemaLoja = () => {
             </div>
           </div>
 
-          {/* Tabela Promissórias */}
+          {/* Tabela de promissórias */}
           <div className="overflow-x-auto text-sm mb-6">
-            <table
-              className="w-full border border-gray-200"
-              style={{ minWidth: '950px' }}
-            >
+            <table className="w-full">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-2 text-center align-middle">
+                  <th className="px-3 py-2 text-center">
                     <input type="checkbox" disabled />
                   </th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">Nr Venda</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">Cliente</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">E-mail</th>
-                  <th className="px-3 py-2 text-right whitespace-nowrap">Saldo Devedor</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">
-                    Data inicial de Pagamento
-                  </th>
-                  <th className="px-3 py-2 text-center whitespace-nowrap">Parcelas</th>
-                  <th className="px-3 py-2 text-center whitespace-nowrap">
-                    Parcelas em atraso
-                  </th>
-                  <th className="px-3 py-2 text-center whitespace-nowrap">Status</th>
+                  <th className="px-3 py-2 text-center">Nr Venda</th>
+                  <th className="px-3 py-2 text-center">Cliente</th>
+                  <th className="px-3 py-2 text-center">E-mail</th>
+                  <th className="px-3 py-2 text-center">Saldo Devedor</th>
+                  <th className="px-3 py-2 text-center">Data inicial de Pagamento</th>
+                  <th className="px-3 py-2 text-center">Parcelas</th>
+                  <th className="px-3 py-2 text-center">Parcelas em atraso</th>
+                  <th className="px-3 py-2 text-center">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -3138,57 +3102,46 @@ const SistemaLoja = () => {
                   const indexOriginal = promissorias.findIndex(
                     (p) => p.nrVenda === prom.nrVenda && p.cliente === prom.cliente,
                   );
-                const atrasada = ehAtrasada(prom);
-
                   return (
-                    <tr
-                      key={idx}
-                      className={`border-t border-gray-200 hover:bg-gray-50 ${
-                        atrasada ? 'bg-red-50' : ''
-                      }`}
-                    >
-                      <td className="px-3 py-2 text-center align-middle">
+                    <tr key={idx} className="border-b hover:bg-gray-50">
+                      <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
                           checked={prom.selecionado || false}
                           onChange={() => toggleSelecao(indexOriginal)}
                         />
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap font-semibold">
+                      <td className="px-3 py-2 text-center font-semibold">
                         {prom.nrVenda}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">{prom.cliente}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
-                        {prom.email || '-'}
+                      <td className="px-3 py-2 text-center">{prom.cliente}</td>
+                      <td className="px-3 py-2 text-center text-xs text-gray-600">
+                        {prom.email}
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">
+                      <td className="px-3 py-2 text-center font-semibold">
                         {formatarReal(prom.valor)}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
+                      <td className="px-3 py-2 text-center">
                         {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
                       </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {prom.parcelas}
-                      </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                      <td className="px-3 py-2 text-center">{prom.parcelas}</td>
+                      <td className="px-3 py-2 text-center">
                         <span
                           className={`px-2 py-1 rounded text-xs ${
-                            (prom.parcelasAtrasadas || 0) > 0
+                            prom.parcelasAtrasadas > 0
                               ? 'bg-red-100 text-red-800'
                               : 'bg-green-100 text-green-800'
                           }`}
                         >
-                          {prom.parcelasAtrasadas || 0}
+                          {prom.parcelasAtrasadas}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                      <td className="px-3 py-2 text-center">
                         <span
                           className={`px-2 py-1 rounded text-xs ${
                             prom.status === 'ABERTO'
                               ? 'bg-yellow-100 text-yellow-800'
-                              : prom.status === 'QUITADO'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-gray-100 text-gray-800'
+                              : 'bg-blue-100 text-blue-800'
                           }`}
                         >
                           {prom.status}
@@ -3211,50 +3164,39 @@ const SistemaLoja = () => {
             </table>
           </div>
 
-          {/* Consolidação por Cliente (agora em tabela) */}
+          {/* Consolidação por cliente */}
           <div>
             <h3 className="text-lg font-semibold mb-2">
-              Consolidação por Cliente (somente promissórias listadas acima)
+              Consolidação por Cliente (somente filtrados acima)
             </h3>
-            <div className="overflow-x-auto text-sm">
-              <table
-                className="w-full border border-gray-200"
-                style={{ minWidth: '700px' }}
-              >
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs md:text-sm border border-gray-300">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="px-3 py-2 text-left whitespace-nowrap">Cliente</th>
-                    <th className="px-3 py-2 text-left whitespace-nowrap">E-mail</th>
-                    <th className="px-3 py-2 text-right whitespace-nowrap">
-                      Total em Aberto
-                    </th>
-                    <th className="px-3 py-2 text-center whitespace-nowrap">
-                      Parcelas em Atraso
-                    </th>
+                    <th className="px-3 py-2 text-center">Cliente</th>
+                    <th className="px-3 py-2 text-center">E-mail</th>
+                    <th className="px-3 py-2 text-center">Total em aberto</th>
+                    <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {consolidados.map((c, idx) => (
-                    <tr key={idx} className="border-t border-gray-200 hover:bg-gray-50">
-                      <td className="px-3 py-2 whitespace-nowrap">{c.cliente}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
-                        {c.email || '-'}
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">
+                  {consolidadoPorCliente.map((c, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="px-3 py-2 text-center">{c.cliente}</td>
+                      <td className="px-3 py-2 text-center">{c.email}</td>
+                      <td className="px-3 py-2 text-center font-semibold">
                         {formatarReal(c.total)}
                       </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {c.atrasadas}
-                      </td>
+                      <td className="px-3 py-2 text-center">{c.atrasadas}</td>
                     </tr>
                   ))}
-                  {consolidados.length === 0 && (
+                  {consolidadoPorCliente.length === 0 && (
                     <tr>
                       <td
                         colSpan={4}
-                        className="px-3 py-4 text-center text-xs text-gray-500"
+                        className="px-3 py-3 text-center text-xs text-gray-500"
                       >
-                        Nenhum cliente com promissórias considerando o filtro atual.
+                        Nenhuma promissória para consolidar com os filtros atuais.
                       </td>
                     </tr>
                   )}
@@ -3267,17 +3209,17 @@ const SistemaLoja = () => {
     );
   };
 
-    // ========================================================================
+  // ========================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
   // ========================================================================
   const TelaUsuarios = () => {
     const [novoUsuario, setNovoUsuario] = useState({
+      login: '',
       nome: '',
       perfil: 'VENDA',
       senha: '',
     });
 
-    // Somente ADM pode ver esta tela
     if (perfil !== 'ADM') {
       return (
         <div className="p-6" style={appStyle}>
@@ -3292,19 +3234,16 @@ const SistemaLoja = () => {
     }
 
     const criarUsuario = async () => {
-      if (!novoUsuario.nome || !novoUsuario.senha) {
-        alert('Preencha Nome e Senha.');
+      if (!novoUsuario.login || !novoUsuario.nome || !novoUsuario.senha) {
+        alert('Preencha login, nome e senha.');
         return;
       }
 
-      // Login interno = mesmo texto do Nome (pra você usar o Nome na tela de login)
-      const loginGerado = novoUsuario.nome.trim();
-
       const existe = usuarios.some(
-        (u) => (u.login || u.nome).toLowerCase() === loginGerado.toLowerCase(),
+        (u) => u.login.toLowerCase() === novoUsuario.login.toLowerCase(),
       );
       if (existe) {
-        alert('Já existe um usuário com esse nome/login.');
+        alert('Já existe um usuário com esse login.');
         return;
       }
 
@@ -3312,7 +3251,7 @@ const SistemaLoja = () => {
         const { data, error } = await supabase
           .from('usuarios')
           .insert({
-            login: loginGerado,
+            login: novoUsuario.login,
             nome: novoUsuario.nome,
             perfil: novoUsuario.perfil,
             senha_hash: novoUsuario.senha,
@@ -3326,19 +3265,12 @@ const SistemaLoja = () => {
           return;
         }
 
-        const novo = {
-          id: data.id,
-          login: data.login,
-          nome: data.nome,
-          perfil: data.perfil,
-          senha: data.senha_hash || '',
-        };
-
-        setUsuarios((lista) => [...lista, novo]);
+        setUsuarios((lista) => [...lista, data]);
 
         alert('Usuário criado com sucesso!');
 
         setNovoUsuario({
+          login: '',
           nome: '',
           perfil: 'VENDA',
           senha: '',
@@ -3349,9 +3281,9 @@ const SistemaLoja = () => {
       }
     };
 
-    const alterarSenha = async (id, nomeOuLogin) => {
+    const alterarSenha = async (id, login) => {
       const novaSenha = window.prompt(
-        `Digite a nova senha para o usuário "${nomeOuLogin}":`,
+        `Digite a nova senha para o usuário "${login}":`,
       );
       if (!novaSenha) return;
 
@@ -3367,10 +3299,9 @@ const SistemaLoja = () => {
           return;
         }
 
-        // Atualiza também o campo "senha" no estado local (usado no handleLogin)
         setUsuarios((lista) =>
           lista.map((u) =>
-            u.id === id ? { ...u, senha: novaSenha } : u,
+            u.id === id ? { ...u, senha_hash: novaSenha } : u,
           ),
         );
 
@@ -3381,23 +3312,17 @@ const SistemaLoja = () => {
       }
     };
 
-    const excluirUsuario = async (id, nomeOuLogin, perfilUsuario) => {
-      // impede excluir o último ADM
-      if (perfilUsuario === 'ADM') {
-        const qtdAdms = usuarios.filter((u) => u.perfil === 'ADM').length;
-        if (qtdAdms <= 1) {
-          alert('Não é possível excluir o último usuário ADM.');
-          return;
-        }
-      }
-
+    const excluirUsuario = async (id, login) => {
       const confirma = window.confirm(
-        `Tem certeza que deseja excluir o usuário "${nomeOuLogin}"?`,
+        `Tem certeza que deseja excluir o usuário "${login}"?`,
       );
       if (!confirma) return;
 
       try {
-        const { error } = await supabase.from('usuarios').delete().eq('id', id);
+        const { error } = await supabase
+          .from('usuarios')
+          .delete()
+          .eq('id', id);
 
         if (error) {
           console.error('Erro ao excluir usuário na nuvem:', error);
@@ -3419,8 +3344,8 @@ const SistemaLoja = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold mb-4">Gerenciamento de Usuários</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Crie novos logins para administradores, gerentes ou vendedores e altere senhas
-            dos usuários existentes.
+            Crie novos logins para administradores, gerentes ou vendedores e altere
+            senhas dos usuários existentes.
           </p>
 
           {/* Formulário novo usuário */}
@@ -3434,7 +3359,19 @@ const SistemaLoja = () => {
                   setNovoUsuario({ ...novoUsuario, nome: e.target.value })
                 }
                 className="w-full px-3 py-2 border rounded-lg"
-                placeholder="Nome completo (usado como usuário)"
+                placeholder="Nome completo"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Login</label>
+              <input
+                type="text"
+                value={novoUsuario.login}
+                onChange={(e) =>
+                  setNovoUsuario({ ...novoUsuario, login: e.target.value })
+                }
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="ex: venda3"
               />
             </div>
             <div>
@@ -3452,7 +3389,7 @@ const SistemaLoja = () => {
               </select>
             </div>
             <div>
-              <label className="block font-semibold mb-1">Senha</label>
+              <label className="block font-semibold mb-1 mt-2 md:mt-0">Senha</label>
               <input
                 type="password"
                 value={novoUsuario.senha}
@@ -3469,7 +3406,7 @@ const SistemaLoja = () => {
             onClick={criarUsuario}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
           >
-            Criar usuário
+            Criar Usuário
           </button>
         </div>
 
@@ -3480,38 +3417,40 @@ const SistemaLoja = () => {
             <table className="w-full">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-2 text-left">Nome</th>
-                  <th className="px-3 py-2 text-left">Perfil</th>
+                  <th className="px-3 py-2 text-center">Login</th>
+                  <th className="px-3 py-2 text-center">Nome</th>
+                  <th className="px-3 py-2 text-center">Perfil</th>
                   <th className="px-3 py-2 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {usuarios.map((u, idx) => (
                   <tr key={idx} className="border-b hover:bg-gray-50">
-                    <td className="px-3 py-2">{u.nome}</td>
-                    <td className="px-3 py-2">{u.perfil}</td>
-                    <td className="px-3 py-2 text-center space-x-2">
-                      <button
-                        onClick={() => alterarSenha(u.id, u.nome || u.login)}
-                        className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        Alterar senha
-                      </button>
-                      <button
-                        onClick={() =>
-                          excluirUsuario(u.id, u.nome || u.login, u.perfil)
-                        }
-                        className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
-                      >
-                        Excluir
-                      </button>
+                    <td className="px-3 py-2 text-center font-mono text-xs">{u.login}</td>
+                    <td className="px-3 py-2 text-center">{u.nome}</td>
+                    <td className="px-3 py-2 text-center">{u.perfil}</td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => alterarSenha(u.id, u.login)}
+                          className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700"
+                        >
+                          Alterar senha
+                        </button>
+                        <button
+                          onClick={() => excluirUsuario(u.id, u.login)}
+                          className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                        >
+                          Excluir
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {usuarios.length === 0 && (
                   <tr>
                     <td
-                      colSpan={3}
+                      colSpan={4}
                       className="px-3 py-4 text-center text-gray-500 text-xs"
                     >
                       Nenhum usuário cadastrado.
@@ -3525,8 +3464,7 @@ const SistemaLoja = () => {
       </div>
     );
   };
- 
-
+  // ======== FIM DA PARTE 3/4 ========
   // ========================================================================
   // RENDERIZAÇÃO PRINCIPAL
   // ========================================================================
