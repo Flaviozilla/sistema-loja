@@ -3787,529 +3787,563 @@ Wolf Artigos Militares`
       </div>
     );
   };
+// ========================================================================
+// TELA PAGAMENTO (PROMISSÓRIAS)
+// ========================================================================
+const TelaPagamentoPromissorias = () => {
+  const [listaPromissorias, setListaPromissorias] = useState([]);
+  const [listaPagamentos, setListaPagamentos] = useState([]);
 
-  // ========================================================================
-  // TELA PAGAMENTO (PROMISSÓRIAS)
-  // ========================================================================
-  const TelaPagamentoPromissorias = () => {
-    const [listaPromissorias, setListaPromissorias] = useState([]);
-    const [listaPagamentos, setListaPagamentos] = useState([]);
+  const hoje = new Date();
+  const hojeISO = hoje.toISOString().slice(0, 10); // yyyy-mm-dd
 
-    const hoje = new Date();
-    const hojeISO = hoje.toISOString().slice(0, 10); // yyyy-mm-dd
+  const [form, setForm] = useState({
+    data: hojeISO,
+    nrVenda: '',
+    forma: '',
+    valorPago: '',
+  });
 
-    const [form, setForm] = useState({
-      data: hojeISO,
-      nrVenda: '',
-      forma: '',
-      valorPago: '',
-    });
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState('');
+  const [msg, setMsg] = useState('');
 
-    const [loading, setLoading] = useState(false);
-    const [erro, setErro] = useState('');
-    const [msg, setMsg] = useState('');
+  // --------------------------------------------------------------------
+  // Função auxiliar: calcula parcelas em atraso a partir de data_inicio
+  // --------------------------------------------------------------------
+  const calcularParcelasEmAtraso = (p) => {
+    const hojeLocal = new Date();
+    hojeLocal.setHours(0, 0, 0, 0);
 
-    // Carregar promissórias (fonte da lista de Nr Venda)
-    const carregarPromissorias = async () => {
-      setErro('');
-      const { data, error } = await supabase
-        .from('promissorias')
-        .select('*')
-        .order('id', { ascending: true });
+    const dataInicioBruta = p.data_inicio || p.dataInicio;
+    if (!dataInicioBruta) return 0;
 
-      if (error) {
-        console.error('Erro ao carregar promissórias:', error);
-        setErro('Erro ao carregar promissórias.');
-        return;
-      }
-      setListaPromissorias(data || []);
-    };
+    const inicio = new Date(dataInicioBruta);
+    if (isNaN(inicio.getTime())) return 0;
 
-    // Carregar pagamentos
-    const carregarPagamentos = async () => {
-      setErro('');
-      const { data, error } = await supabase
-        .from('pagamentos_promissorias')
-        .select('*')
-        .order('data_pagamento', { ascending: false })
-        .order('id', { ascending: false });
+    inicio.setHours(0, 0, 0, 0);
 
-      if (error) {
-        console.error('Erro ao carregar pagamentos:', error);
-        setErro('Erro ao carregar pagamentos.');
-        return;
-      }
-      setListaPagamentos(data || []);
-    };
+    // ainda não chegou a primeira parcela
+    if (inicio > hojeLocal) return 0;
 
-    useEffect(() => {
-      carregarPromissorias();
-      carregarPagamentos();
-    }, []);
+    const anoDiff = hojeLocal.getFullYear() - inicio.getFullYear();
+    const mesDiff = hojeLocal.getMonth() - inicio.getMonth();
+    let parcelasVencidas = anoDiff * 12 + mesDiff + 1; // +1 conta o mês inicial
 
-    const promissoriaSelecionada = useMemo(() => {
-      if (!form.nrVenda) return null;
+    if (parcelasVencidas < 0) parcelasVencidas = 0;
 
-      return (
-        listaPromissorias.find((p) => {
-          const nr =
-            p.nr_venda != null
-              ? p.nr_venda
-              : p.nrVenda != null
-              ? p.nrVenda
-              : '';
-          return nr === form.nrVenda;
-        }) || null
-      );
-    }, [form.nrVenda, listaPromissorias]);
+    const totalParcelas = Number(p.parcelas || 0);
+    if (totalParcelas && parcelasVencidas > totalParcelas) {
+      parcelasVencidas = totalParcelas;
+    }
 
-    const cliente = promissoriaSelecionada
-      ? promissoriaSelecionada.cliente ||
-        promissoriaSelecionada.nome_cliente ||
-        ''
-      : '';
-
-    const parcelasAtrasadas = promissoriaSelecionada
-      ? Number(
-          promissoriaSelecionada.parcelas_atrasadas ??
-            promissoriaSelecionada.parcelasAtrasadas ??
-            promissoriaSelecionada.qtdeParcelasAtrasadas ??
-            0
-        )
-      : 0;
-
-    const saldoDevedor = promissoriaSelecionada
-      ? Number(
-          promissoriaSelecionada.saldo_devedor ??
-            promissoriaSelecionada.saldoDevedor ??
-            promissoriaSelecionada.total_em_aberto ??
-            promissoriaSelecionada.totalEmAberto ??
-            0
-        )
-      : 0;
-
-    const valorPagoNum = Number(form.valorPago || 0);
-    const saldoFinal = Math.max(saldoDevedor - valorPagoNum, 0);
-
-    const formasPagamento = [
-      'Dinheiro',
-      'Pix',
-      'Cartão Crédito',
-      'Cartão Débito',
-      'Boleto',
-      'Transferência',
-    ];
-
-    const handleChange = (campo, valor) => {
-      setForm((prev) => ({ ...prev, [campo]: valor }));
-      setMsg('');
-      setErro('');
-    };
-
-    const salvarPagamento = async () => {
-      setErro('');
-      setMsg('');
-
-      if (!form.data) {
-        setErro('Informe a data do pagamento.');
-        return;
-      }
-      if (!form.nrVenda) {
-        setErro('Selecione o Nr Venda.');
-        return;
-      }
-      if (!form.forma) {
-        setErro('Selecione a forma de pagamento.');
-        return;
-      }
-      if (!valorPagoNum || valorPagoNum <= 0) {
-        setErro('Informe um valor pago maior que zero.');
-        return;
-      }
-      if (!promissoriaSelecionada) {
-        setErro('Não foi possível localizar a promissória para este Nr Venda.');
-        return;
-      }
-
-      setLoading(true);
-
-      try {
-        // 1) REGISTRA O PAGAMENTO
-        const insertData = {
-          data_pagamento: form.data,
-          nr_venda: form.nrVenda,
-          forma_pagamento: form.forma,
-          parcelas_atrasadas: parcelasAtrasadas,
-          cliente: cliente,
-          saldo_devedor: saldoDevedor,
-          valor_pago: valorPagoNum,
-          saldo_devedor_final: saldoFinal,
-        };
-
-        const { error: errInsert } = await supabase
-          .from('pagamentos_promissorias')
-          .insert(insertData);
-
-        if (errInsert) {
-          console.error('Erro ao salvar pagamento:', errInsert);
-          setErro('Erro ao salvar o pagamento.');
-          setLoading(false);
-          return;
-        }
-
-        // 2) ATUALIZA HISTÓRICO: soma Valor Pago ao Valor Final
-        const { data: histRow, error: errHist } = await supabase
-          .from('historico')
-          .select('*')
-          .eq('nr_venda', form.nrVenda)
-          .maybeSingle();
-
-        if (errHist) {
-          console.error('Erro ao buscar histórico:', errHist);
-        } else if (histRow) {
-          const valorAtual =
-            Number(
-              histRow.valor_final ??
-                histRow.valorFinal ??
-                histRow.valorLiq ??
-                histRow.valor_liq ??
-                histRow.valorBruto ??
-                histRow.valor_bruto ??
-                0
-            ) || 0;
-
-          const novoValorFinal = valorAtual + valorPagoNum;
-
-          const { error: errUpdHist } = await supabase
-            .from('historico')
-            .update({
-              valor_final: novoValorFinal,
-              valorFinal: novoValorFinal,
-            })
-            .eq('id', histRow.id);
-
-          if (errUpdHist) {
-            console.error('Erro ao atualizar histórico:', errUpdHist);
-          }
-        }
-
-        // 3) ATUALIZA PROMISSÓRIAS: abate saldo
-        if (promissoriaSelecionada.id != null) {
-          const { error: errUpdProm } = await supabase
-            .from('promissorias')
-            .update({
-              saldo_devedor: saldoFinal,
-              saldoDevedor: saldoFinal,
-              total_em_aberto: saldoFinal,
-              totalEmAberto: saldoFinal,
-            })
-            .eq('id', promissoriaSelecionada.id);
-
-          if (errUpdProm) {
-            console.error('Erro ao atualizar promissória:', errUpdProm);
-          }
-
-          // Se zerou, exclui
-          if (saldoFinal <= 0.000001) {
-            const { error: errDel } = await supabase
-              .from('promissorias')
-              .delete()
-              .eq('id', promissoriaSelecionada.id);
-
-            if (errDel) {
-              console.error('Erro ao excluir promissória zerada:', errDel);
-            }
-          }
-        }
-
-        await carregarPromissorias();
-        await carregarPagamentos();
-
-        setForm({
-          data: hojeISO,
-          nrVenda: '',
-          forma: '',
-          valorPago: '',
-        });
-
-        setMsg('Pagamento registrado com sucesso.');
-      } catch (e) {
-        console.error('Erro inesperado ao salvar pagamento:', e);
-        setErro('Erro inesperado ao salvar o pagamento.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    return (
-      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
-          Pagamento (Promissórias)
-        </h2>
-
-        {erro && (
-          <div style={{ color: 'red', marginBottom: '8px' }}>
-            {erro}
-          </div>
-        )}
-        {msg && (
-          <div style={{ color: 'green', marginBottom: '8px' }}>
-            {msg}
-          </div>
-        )}
-
-        {/* FORMULÁRIO DE PAGAMENTO */}
-        <div
-          style={{
-            border: '1px solid #ccc',
-            borderRadius: '8px',
-            padding: '12px',
-            marginBottom: '16px',
-          }}
-        >
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-            <div style={{ flex: '0 0 140px' }}>
-              <label>Data</label>
-              <input
-                type="date"
-                value={form.data}
-                onChange={(e) => handleChange('data', e.target.value)}
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div style={{ flex: '0 0 200px' }}>
-              <label>Nr Venda</label>
-              <select
-                value={form.nrVenda}
-                onChange={(e) => handleChange('nrVenda', e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <option value="">Selecione...</option>
-                {listaPromissorias.map((p) => {
-                  const nr =
-                    p.nr_venda != null
-                      ? p.nr_venda
-                      : p.nrVenda != null
-                      ? p.nrVenda
-                      : '';
-                  const cli = p.cliente || p.nome_cliente || '';
-                  return (
-                    <option key={p.id} value={nr}>
-                      {nr} {cli ? `- ${cli}` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div style={{ flex: '0 0 200px' }}>
-              <label>Forma de Pagamento</label>
-              <select
-                value={form.forma}
-                onChange={(e) => handleChange('forma', e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <option value="">Selecione...</option>
-                {formasPagamento.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ flex: '0 0 160px' }}>
-              <label>Valor Pago</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.valorPago}
-                onChange={(e) => handleChange('valorPago', e.target.value)}
-                style={{ width: '100%', textAlign: 'right' }}
-              />
-            </div>
-          </div>
-
-          {/* CAMPOS AUTOMÁTICOS */}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <div style={{ flex: '1 1 auto' }}>
-              <label>Cliente</label>
-              <input
-                type="text"
-                value={cliente}
-                readOnly
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div style={{ flex: '0 0 150px' }}>
-              <label>Parcelas em atraso</label>
-              <input
-                type="number"
-                value={parcelasAtrasadas}
-                readOnly
-                style={{ width: '100%', textAlign: 'right' }}
-              />
-            </div>
-
-            <div style={{ flex: '0 0 160px' }}>
-              <label>Saldo Devedor</label>
-              <input
-                type="text"
-                value={saldoDevedor.toFixed(2)}
-                readOnly
-                style={{ width: '100%', textAlign: 'right' }}
-              />
-            </div>
-
-            <div style={{ flex: '0 0 180px' }}>
-              <label>Saldo Devedor Final</label>
-              <input
-                type="text"
-                value={saldoFinal.toFixed(2)}
-                readOnly
-                style={{ width: '100%', textAlign: 'right' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: '12px' }}>
-            <button
-              onClick={salvarPagamento}
-              disabled={loading}
-              style={{
-                padding: '8px 16px',
-                cursor: loading ? 'wait' : 'pointer',
-              }}
-            >
-              {loading ? 'Salvando...' : 'Registrar Pagamento'}
-            </button>
-          </div>
-        </div>
-
-        {/* TABELA DE PAGAMENTOS JÁ REGISTRADOS */}
-        <h3
-          style={{
-            fontSize: '16px',
-            fontWeight: 'bold',
-            marginBottom: '4px',
-          }}
-        >
-          Pagamentos registrados
-        </h3>
-
-        <div style={{ overflowX: 'auto' }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '14px',
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Data
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Nr Venda
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Forma
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Cliente
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Parcelas
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Saldo Anterior
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Valor Pago
-                </th>
-                <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
-                  Saldo Final
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {listaPagamentos.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
-                    {p.data_pagamento}
-                  </td>
-                  <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
-                    {p.nr_venda}
-                  </td>
-                  <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
-                    {p.forma_pagamento}
-                  </td>
-                  <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
-                    {p.cliente}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: '1px solid #f0f0f0',
-                      padding: '4px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {p.parcelas_atrasadas}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: '1px solid #f0f0f0',
-                      padding: '4px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {Number(p.saldo_devedor || 0).toFixed(2)}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: '1px solid #f0f0f0',
-                      padding: '4px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {Number(p.valor_pago || 0).toFixed(2)}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: '1px solid #f0f0f0',
-                      padding: '4px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {Number(p.saldo_devedor_final || 0).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-              {listaPagamentos.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={8}
-                    style={{
-                      textAlign: 'center',
-                      padding: '8px',
-                      borderBottom: '1px solid #f0f0f0',
-                    }}
-                  >
-                    Nenhum pagamento registrado ainda.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
+    return parcelasVencidas;
   };
 
+  // --------------------------------------------------------------------
+  // Carregar promissórias em aberto (fonte da lista de Nr Venda)
+  // --------------------------------------------------------------------
+  const carregarPromissorias = async () => {
+    setErro('');
+    const { data, error } = await supabase
+      .from('promissorias') // nome da tabela de promissórias
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Erro ao carregar promissórias:', error);
+      setErro('Erro ao carregar promissórias.');
+      return;
+    }
+    setListaPromissorias(data || []);
+  };
+
+  // --------------------------------------------------------------------
+  // Carregar pagamentos já efetuados (para exibir na tabela)
+  // --------------------------------------------------------------------
+  const carregarPagamentos = async () => {
+    setErro('');
+    const { data, error } = await supabase
+      .from('pagamentos_promissorias')
+      .select('*')
+      .order('data_pagamento', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao carregar pagamentos:', error);
+      setErro('Erro ao carregar pagamentos.');
+      return;
+    }
+    setListaPagamentos(data || []);
+  };
+
+  useEffect(() => {
+    carregarPromissorias();
+    carregarPagamentos();
+  }, []);
+
+  // --------------------------------------------------------------------
+  // Localiza a promissória selecionada pelo Nr Venda
+  // --------------------------------------------------------------------
+  const promissoriaSelecionada = useMemo(() => {
+    if (!form.nrVenda) return null;
+
+    const nrForm = String(form.nrVenda || '');
+
+    return (
+      listaPromissorias.find((p) => {
+        const nrRaw =
+          p.nr_venda != null
+            ? p.nr_venda
+            : p.nrVenda != null
+            ? p.nrVenda
+            : '';
+        const nr = String(nrRaw || '');
+        return nr === nrForm;
+      }) || null
+    );
+  }, [form.nrVenda, listaPromissorias]);
+
+  // --------------------------------------------------------------------
+  // Campos derivados automaticamente
+  // --------------------------------------------------------------------
+  const cliente = promissoriaSelecionada
+    ? promissoriaSelecionada.cliente ||
+      promissoriaSelecionada.nome_cliente ||
+      ''
+    : '';
+
+  // Parcelas em atraso calculadas a partir de data_inicio + parcelas
+  const parcelasAtrasadas = useMemo(() => {
+    if (!promissoriaSelecionada) return 0;
+    return calcularParcelasEmAtraso(promissoriaSelecionada);
+  }, [promissoriaSelecionada]);
+
+  // Saldo devedor: valor original da promissória - somatório de pagamentos já feitos
+  const saldoDevedor = useMemo(() => {
+    if (!promissoriaSelecionada) return 0;
+
+    const valorOriginal = Number(
+      promissoriaSelecionada.saldo_devedor ??
+        promissoriaSelecionada.saldoDevedor ??
+        promissoriaSelecionada.total_em_aberto ??
+        promissoriaSelecionada.totalEmAberto ??
+        promissoriaSelecionada.valor ??
+        0,
+    );
+
+    const nrForm = String(form.nrVenda || '');
+
+    // Soma de todos os pagamentos já registrados para este Nr Venda
+    const totalPago = listaPagamentos
+      .filter((p) => String(p.nr_venda || '') === nrForm)
+      .reduce((acc, p) => acc + Number(p.valor_pago || 0), 0);
+
+    const saldo = valorOriginal - totalPago;
+    return saldo > 0 ? saldo : 0;
+  }, [promissoriaSelecionada, listaPagamentos, form.nrVenda]);
+
+  const valorPagoNum = Number(form.valorPago || 0);
+  const saldoFinal =
+    saldoDevedor - valorPagoNum > 0 ? saldoDevedor - valorPagoNum : 0;
+
+  // Opções de forma de pagamento (sem "Promissória")
+  const formasPagamento = [
+    'Dinheiro',
+    'Pix',
+    'Cartão Crédito',
+    'Cartão Débito',
+    'Boleto',
+    'Transferência',
+  ];
+
+  const handleChange = (campo, valor) => {
+    setForm((prev) => ({ ...prev, [campo]: valor }));
+    setMsg('');
+    setErro('');
+  };
+
+  // --------------------------------------------------------------------
+  // Salvar pagamento
+  // --------------------------------------------------------------------
+  const salvarPagamento = async () => {
+    setErro('');
+    setMsg('');
+
+    if (!form.data) {
+      setErro('Informe a data do pagamento.');
+      return;
+    }
+    if (!form.nrVenda) {
+      setErro('Selecione o Nr Venda.');
+      return;
+    }
+    if (!form.forma) {
+      setErro('Selecione a forma de pagamento.');
+      return;
+    }
+    if (!valorPagoNum || valorPagoNum <= 0) {
+      setErro('Informe um valor pago maior que zero.');
+      return;
+    }
+    if (!promissoriaSelecionada) {
+      setErro('Não foi possível localizar a promissória para este Nr Venda.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // 1) REGISTRA O PAGAMENTO NA TABELA pagamentos_promissorias
+      const insertData = {
+        data_pagamento: form.data,
+        nr_venda: form.nrVenda,
+        forma_pagamento: form.forma,
+        parcelas_atrasadas: parcelasAtrasadas,
+        cliente: cliente,
+        saldo_devedor: saldoDevedor,
+        valor_pago: valorPagoNum,
+        saldo_devedor_final: saldoFinal,
+      };
+
+      const { error: errInsert } = await supabase
+        .from('pagamentos_promissorias')
+        .insert(insertData);
+
+      if (errInsert) {
+        console.error('Erro ao salvar pagamento:', errInsert);
+        setErro('Erro ao salvar o pagamento.');
+        setLoading(false);
+        return;
+      }
+
+      // 2) ATUALIZA PROMISSÓRIAS COM NOVO SALDO (se tiver colunas de saldo)
+      if (promissoriaSelecionada.id != null) {
+        const { error: errUpdProm } = await supabase
+          .from('promissorias')
+          .update({
+            saldo_devedor: saldoFinal,
+            saldoDevedor: saldoFinal,
+            total_em_aberto: saldoFinal,
+            totalEmAberto: saldoFinal,
+          })
+          .eq('id', promissoriaSelecionada.id);
+
+        if (errUpdProm) {
+          console.error('Erro ao atualizar promissória:', errUpdProm);
+        }
+
+        // Se saldo zerar, exclui a promissória
+        if (saldoFinal <= 0.000001) {
+          const { error: errDel } = await supabase
+            .from('promissorias')
+            .delete()
+            .eq('id', promissoriaSelecionada.id);
+
+          if (errDel) {
+            console.error('Erro ao excluir promissória zerada:', errDel);
+          }
+        }
+      }
+
+      // Recarrega listas e limpa o formulário
+      await carregarPromissorias();
+      await carregarPagamentos();
+
+      setForm({
+        data: hojeISO,
+        nrVenda: '',
+        forma: '',
+        valorPago: '',
+      });
+
+      setMsg('Pagamento registrado com sucesso.');
+    } catch (e) {
+      console.error('Erro inesperado ao salvar pagamento:', e);
+      setErro('Erro inesperado ao salvar o pagamento.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------------------------------------
+  // RENDER
+  // --------------------------------------------------------------------
+  return (
+    <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
+        Pagamento (Promissórias)
+      </h2>
+
+      {erro && (
+        <div style={{ color: 'red', marginBottom: '8px' }}>
+          {erro}
+        </div>
+      )}
+      {msg && (
+        <div style={{ color: 'green', marginBottom: '8px' }}>
+          {msg}
+        </div>
+      )}
+
+      {/* FORMULÁRIO DE PAGAMENTO */}
+      <div
+        style={{
+          border: '1px solid #ccc',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ flex: '0 0 140px' }}>
+            <label>Data</label>
+            <input
+              type="date"
+              value={form.data}
+              onChange={(e) => handleChange('data', e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 200px' }}>
+            <label>Nr Venda</label>
+            <select
+              value={form.nrVenda}
+              onChange={(e) => handleChange('nrVenda', e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">Selecione...</option>
+              {listaPromissorias.map((p) => {
+                const nr =
+                  p.nr_venda != null
+                    ? p.nr_venda
+                    : p.nrVenda != null
+                    ? p.nrVenda
+                    : '';
+                const cli = p.cliente || p.nome_cliente || '';
+                return (
+                  <option key={p.id} value={nr}>
+                    {nr} {cli ? `- ${cli}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <div style={{ flex: '0 0 200px' }}>
+            <label>Forma de Pagamento</label>
+            <select
+              value={form.forma}
+              onChange={(e) => handleChange('forma', e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">Selecione...</option>
+              {formasPagamento.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ flex: '0 0 160px' }}>
+            <label>Valor Pago</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.valorPago}
+              onChange={(e) => handleChange('valorPago', e.target.value)}
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+        </div>
+
+        {/* CAMPOS AUTOMÁTICOS */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ flex: '1 1 auto' }}>
+            <label>Cliente</label>
+            <input
+              type="text"
+              value={cliente}
+              readOnly
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 150px' }}>
+            <label>Parcelas em atraso</label>
+            <input
+              type="number"
+              value={parcelasAtrasadas}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 160px' }}>
+            <label>Saldo Devedor</label>
+            <input
+              type="text"
+              value={saldoDevedor.toFixed(2)}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 180px' }}>
+            <label>Saldo Devedor Final</label>
+            <input
+              type="text"
+              value={saldoFinal.toFixed(2)}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginTop: '12px' }}>
+          <button
+            onClick={salvarPagamento}
+            disabled={loading}
+            style={{
+              padding: '8px 16px',
+              cursor: loading ? 'wait' : 'pointer',
+              backgroundColor: '#2563eb', // azul
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+            }}
+          >
+            {loading ? 'Salvando...' : 'Pagamento Efetuado'}
+          </button>
+        </div>
+      </div>
+
+      {/* TABELA DE PAGAMENTOS JÁ REGISTRADOS */}
+      <h3
+        style={{
+          fontSize: '16px',
+          fontWeight: 'bold',
+          marginBottom: '4px',
+        }}
+      >
+        Pagamentos registrados
+      </h3>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '14px',
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Data
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Nr Venda
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Forma
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Cliente
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Parcelas em atraso
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Saldo Anterior
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Valor Pago
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Saldo Final
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {listaPagamentos.map((p) => (
+              <tr key={p.id}>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.data_pagamento}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.nr_venda}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.forma_pagamento}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.cliente}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {p.parcelas_atrasadas}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.saldo_devedor || 0).toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.valor_pago || 0).toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.saldo_devedor_final || 0).toFixed(2)}
+                </td>
+              </tr>
+            ))}
+            {listaPagamentos.length === 0 && (
+              <tr>
+                <td
+                  colSpan={8}
+                  style={{
+                    textAlign: 'center',
+                    padding: '8px',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}
+                >
+                  Nenhum pagamento registrado ainda.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+  
   // ======================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
   // ======================================================================
