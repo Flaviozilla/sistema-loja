@@ -1107,15 +1107,29 @@ const TelaVendedor = () => {
       }
     }
 
-    // 4) Salvar venda no Supabase (tabela lançamentos)
+       // 4) Gerar número sequencial da venda no dia e salvar no Supabase (tabela lançamentos)
     try {
-      const nrVendaNumero =
-        parseInt(
-          (lancVenda.nrVenda || '').includes('-')
-            ? lancVenda.nrVenda.split('-')[1]
-            : lancVenda.nrVenda,
-          10,
-        ) || null;
+      // 4.1 Descobre o próximo nr_venda para esta data
+      let nrVendaNumero = 1;
+
+      if (lancVenda.data) {
+        const { data: vendasExistentes, error: erroBusca } = await supabase
+          .from('lancamentos')
+          .select('nr_venda')
+          .eq('tipo', 'VENDA')
+          .eq('data', lancVenda.data)
+          .order('nr_venda', { ascending: false })
+          .limit(1);
+
+        if (erroBusca) {
+          console.error('Erro ao buscar últimos nr_venda:', erroBusca);
+        } else if (vendasExistentes && vendasExistentes.length > 0) {
+          const ultimo = Number(vendasExistentes[0].nr_venda || 0);
+          if (!Number.isNaN(ultimo) && Number.isFinite(ultimo)) {
+            nrVendaNumero = ultimo + 1;
+          }
+        }
+      }
 
       const { error } = await supabase.from('lancamentos').insert({
         data: lancVenda.data,
@@ -1212,6 +1226,7 @@ const TelaVendedor = () => {
       fotoUrl: '',
     });
   };
+
 
   // Produtos com saldo positivo em estoque (agrupados) – continua igual
   const produtosEstoque = useMemo(() => {
@@ -1531,8 +1546,8 @@ const TelaVendedor = () => {
   // Coloque o caminho/URL correto da sua logo aqui:
   const LOGO_EMPRESA_URL = '/logo-loja.png';
 
-  // ======================================================================
-  // TELA HISTÓRICO (com Nr Venda, Forma e Valor Final)
+   // ======================================================================
+  // TELA HISTÓRICO (com Nr Venda, Forma, Valor Final e Estorno com estoque)
   // ======================================================================
 
   const TelaHistorico = () => {
@@ -1592,6 +1607,9 @@ const TelaVendedor = () => {
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
+
+    // Seleção de linhas (por índice da lista filtrada)
+    const [selecionados, setSelecionados] = useState({}); // { idxFiltrado: true/false }
 
     const normalizarData = (valor) => {
       if (!valor) return '';
@@ -1673,6 +1691,141 @@ const TelaVendedor = () => {
     });
 
     // -----------------------------
+    // FUNÇÃO: aplicar movimento no estoque a partir de 1 lançamento
+    // -----------------------------
+    const aplicarMovimentoEstoquePorLancamento = async (lanc) => {
+      const qtde = Number(lanc.qtde || 0);
+      if (!qtde) return;
+
+      const tipo = (lanc.tipo || '').toUpperCase();
+      const forma = (lanc.forma || '').toUpperCase();
+
+      // Regras:
+      // - VENDA ou qualquer forma de venda => mexe LOJA (saida)
+      // - COMPRA => mexe DEPÓSITO (entrada)
+      // - TRANSFERENCIA => tira DEPÓSITO, coloca LOJA
+      const formasVenda = [
+        'PIX',
+        'DINHEIRO',
+        'DEBITO',
+        'DÉBITO',
+        'CREDITO',
+        'CRÉDITO',
+        'PROMISSORIA',
+        'PROMISSÓRIA',
+        'CARTAO',
+        'CARTÃO',
+      ];
+
+      const ehVenda =
+        tipo === 'VENDA' || formasVenda.includes(forma);
+
+      const ehCompra =
+        tipo === 'COMPRA' || forma === 'COMPRA';
+
+      const ehTransferencia =
+        tipo === 'TRANSFERENCIA' || forma === 'TRANSFERENCIA';
+
+      if (!ehVenda && !ehCompra && !ehTransferencia) {
+        // lançamento que não afeta estoque
+        return;
+      }
+
+      const cod = lanc.cod_produto || lanc.codProduto;
+      if (!cod) return;
+
+      const dataEntrada =
+        normalizarData(lanc.data) || new Date().toISOString().slice(0, 10);
+
+      const fornecedor = limparFornecedorTexto(lanc.fornecedor || '');
+      const produtoNome = lanc.produto || '';
+
+      const movimentos = [];
+
+      if (ehVenda) {
+        // VENDA: saída da LOJA = -qtde
+        movimentos.push({
+          cod_produto: cod,
+          produto: produtoNome,
+          fornecedor,
+          local: 'LOJA',
+          qtde: -qtde,
+          data_entrada: dataEntrada,
+        });
+      }
+
+      if (ehCompra) {
+        // COMPRA: entrada no DEPÓSITO = +qtde
+        movimentos.push({
+          cod_produto: cod,
+          produto: produtoNome,
+          fornecedor,
+          local: 'DEPOSITO',
+          qtde: qtde,
+          data_entrada: dataEntrada,
+        });
+      }
+
+      if (ehTransferencia) {
+        // TRANSFERÊNCIA: tira do DEPÓSITO e coloca na LOJA
+        movimentos.push({
+          cod_produto: cod,
+          produto: produtoNome,
+          fornecedor,
+          local: 'DEPOSITO',
+          qtde: -qtde,
+          data_entrada: dataEntrada,
+        });
+        movimentos.push({
+          cod_produto: cod,
+          produto: produtoNome,
+          fornecedor,
+          local: 'LOJA',
+          qtde: qtde,
+          data_entrada: dataEntrada,
+        });
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('estoque')
+          .insert(movimentos)
+          .select(
+            'id, cod_produto, produto, fornecedor, local, qtde, data_entrada',
+          );
+
+        if (error) {
+          console.error(
+            'Erro ao registrar movimento de estoque (histórico):',
+            error,
+          );
+          // Mesmo com erro na nuvem, atualiza estado local com ids fake
+          setEstoque((lista) => [
+            ...lista,
+            ...movimentos.map((m) => ({
+              id: Date.now() + Math.random(),
+              ...m,
+            })),
+          ]);
+        } else {
+          setEstoque((lista) => [...lista, ...(data || [])]);
+        }
+      } catch (e) {
+        console.error(
+          'Erro inesperado ao registrar movimento de estoque (histórico):',
+          e,
+        );
+        setEstoque((lista) => [
+          ...lista,
+          ...movimentos.map((m) => ({
+            id: Date.now() + Math.random(),
+            ...m,
+          })),
+        ]);
+      }
+    };
+
+    // -----------------------------
     // DOWNLOAD CSV (Excel)
     // -----------------------------
     const baixarHistoricoCSV = () => {
@@ -1731,7 +1884,7 @@ const TelaVendedor = () => {
     };
 
     // -----------------------------
-    // LIMPAR HISTÓRICO
+    // LIMPAR HISTÓRICO (apenas ADM/GER)
     // -----------------------------
     const limparHistorico = () => {
       const ok = window.confirm(
@@ -1740,11 +1893,82 @@ const TelaVendedor = () => {
       if (!ok) return;
 
       setHistorico([]);
+      setSelecionados({});
       try {
         localStorage.removeItem('historicoLancamentos');
       } catch (e) {
         console.error('Erro ao limpar histórico do localStorage:', e);
       }
+    };
+
+    // -----------------------------
+    // ESTORNAR SELECIONADOS (HISTÓRICO + ESTOQUE)
+    // -----------------------------
+    const estornarSelecionados = async () => {
+      const novosRegistros = [];
+
+      historicoFiltrado.forEach((l, idxFiltrado) => {
+        if (!selecionados[idxFiltrado]) return;
+
+        // não permite estornar estorno nem linha já estornada
+        if ((l.tipo || '').toUpperCase() === 'ESTORNO' || l.estornado) {
+          return;
+        }
+
+        const valorFinal = pegarValorFinal(l);
+        const qtdeOriginal =
+          l.qtde != null ? Number(l.qtde) : null;
+
+        const novo = { ...l };
+
+        // marca tipo estorno
+        novo.tipo = 'ESTORNO';
+
+        // quantidade negativa (inverte)
+        if (qtdeOriginal != null && !Number.isNaN(qtdeOriginal)) {
+          novo.qtde = -qtdeOriginal;
+        }
+
+        // inverte o valor final da venda, respeitando o campo que existir
+        if (l.valorLiq != null) {
+          novo.valorLiq = -Number(l.valorLiq || 0);
+        } else if (l.valor_liq != null) {
+          novo.valor_liq = -Number(l.valor_liq || 0);
+        } else if (l.valorBruto != null) {
+          novo.valorBruto = -Number(l.valorBruto || 0);
+        } else if (l.valor_bruto != null) {
+          novo.valor_bruto = -Number(l.valor_bruto || 0);
+        } else if (!Number.isNaN(valorFinal)) {
+          novo.valorLiq = -valorFinal;
+        }
+
+        // marca a linha ORIGINAL como já estornada (para esconder checkbox)
+        l.estornado = true;
+
+        novosRegistros.push(novo);
+      });
+
+      if (!novosRegistros.length) {
+        alert('Nenhuma linha válida selecionada para estorno.');
+        return;
+      }
+
+      // Aplica os movimentos de estoque para cada estorno novo
+      for (const novoLanc of novosRegistros) {
+        await aplicarMovimentoEstoquePorLancamento(novoLanc);
+      }
+
+      // Atualiza histórico (adiciona estornos ao final)
+      setHistorico((lista) => [...lista, ...novosRegistros]);
+      setSelecionados({});
+      alert('Estorno lançado no histórico e estoque atualizado.');
+    };
+
+    const toggleSelecionado = (idxFiltrado) => {
+      setSelecionados((prev) => ({
+        ...prev,
+        [idxFiltrado]: !prev[idxFiltrado],
+      }));
     };
 
     // -----------------------------
@@ -1831,7 +2055,7 @@ const TelaVendedor = () => {
       novaJanela.document.close();
       novaJanela.focus();
       novaJanela.print();
-      // novaJanela.close(); // descomente se quiser fechar automaticamente
+      // novaJanela.close(); // se quiser fechar automaticamente
     };
 
     // -----------------------------
@@ -1890,7 +2114,7 @@ const TelaVendedor = () => {
                 <option value="CARTAO">Cartão</option>
                 <option value="CREDITO">Crédito</option>
                 <option value="DEBITO">Débito</option>
-                {/* acrescente as demais formas que você utiliza */}
+                <option value="PROMISSORIA">Promissória</option>
               </select>
             </label>
           </div>
@@ -1918,14 +2142,32 @@ const TelaVendedor = () => {
           >
             Baixar Histórico (CSV/Excel)
           </button>
+
           <button
-            onClick={limparHistorico}
-            style={{ fontSize: '11px', padding: '4px 8px' }}
+            onClick={estornarSelecionados}
+            style={{
+              fontSize: '11px',
+              padding: '4px 8px',
+              background: '#b91c1c',
+              color: '#fff',
+              borderRadius: 4,
+              border: 'none',
+            }}
           >
-            Limpar Histórico Salvo
+            Estornar Selecionados (estoque)
           </button>
+
+          {(perfil === 'ADM' || perfil === 'GER') && (
+            <button
+              onClick={limparHistorico}
+              style={{ fontSize: '11px', padding: '4px 8px', marginLeft: 'auto' }}
+            >
+              Limpar Histórico Salvo
+            </button>
+          )}
         </div>
 
+        {/* Tabela */}
         <div
           style={{
             background: '#ffffff',
@@ -1944,6 +2186,9 @@ const TelaVendedor = () => {
             >
               <thead>
                 <tr style={{ background: '#f3f4f6' }}>
+                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                    Sel.
+                  </th>
                   <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
                     Data
                   </th>
@@ -1968,69 +2213,92 @@ const TelaVendedor = () => {
                 </tr>
               </thead>
               <tbody>
-                {historicoFiltrado.map((l, idx) => (
-                  <tr key={idx}>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {formatarDataBR(l.data)}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {l.tipo}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {pegarNrVenda(l)}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {pegarForma(l)}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {l.produto}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {l.qtde}
-                    </td>
-                    <td
-                      style={{
-                        padding: '4px 6px',
-                        borderBottom: '1px solid #f3f4f6',
-                      }}
-                    >
-                      {formatarReal(pegarValorFinal(l))}
-                    </td>
-                  </tr>
-                ))}
+                {historicoFiltrado.map((l, idx) => {
+                  const jaEstornado =
+                    (l.tipo || '').toUpperCase() === 'ESTORNO' || l.estornado;
+
+                  return (
+                    <tr key={idx}>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {jaEstornado ? (
+                          <span style={{ fontSize: '9px', color: '#9ca3af' }}>
+                            —
+                          </span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={!!selecionados[idx]}
+                            onChange={() => toggleSelecionado(idx)}
+                          />
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {formatarDataBR(l.data)}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {l.tipo}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {pegarNrVenda(l)}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {pegarForma(l)}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {l.produto}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {l.qtde}
+                      </td>
+                      <td
+                        style={{
+                          padding: '4px 6px',
+                          borderBottom: '1px solid #f3f4f6',
+                        }}
+                      >
+                        {formatarReal(pegarValorFinal(l))}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {historicoFiltrado.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: '8px', fontSize: '11px' }}>
+                    <td colSpan={8} style={{ padding: '8px', fontSize: '11px' }}>
                       Nenhum lançamento registrado (com os filtros atuais).
                     </td>
                   </tr>
@@ -2042,6 +2310,7 @@ const TelaVendedor = () => {
       </div>
     );
   };
+
    // ======================================================================
   // TELA DE INVENTÁRIO
   // ======================================================================
@@ -2670,6 +2939,86 @@ const TelaVendedor = () => {
         }
 
         setEstoque((lista) => [...lista, ...(data || [])]);
+
+        // =====================================================
+        // REGISTRA TAMBÉM NA TABELA "lancamentos" (HISTÓRICO)
+        // =====================================================
+        const tipoLanc = isReposicaoLoja ? 'TRANSFERENCIA' : 'COMPRA';
+        const formaLanc = isReposicaoLoja ? 'TRANSFERENCIA' : 'COMPRA';
+        const localLanc = isReposicaoLoja ? 'LOJA' : 'DEPOSITO';
+        const valorTotal = isReposicaoLoja
+          ? null
+          : Number(qtde * (valorUnit || 0));
+
+        try {
+          const { error: lancError } = await supabase
+            .from('lancamentos')
+            .insert({
+              data: novaCompra.data,
+              tipo: tipoLanc,
+              cod_produto: prod.codProduto,
+              produto: prod.nome,
+              fornecedor: limparFornecedorTexto(
+                novaCompra.fornecedor || prod.fornecedor,
+              ),
+              qtde: qtde,
+              valor_bruto: valorTotal,
+              desconto: null,
+              juros: null,
+              valor_liq: valorTotal,
+              forma: formaLanc,
+              nr_venda: null,
+              local: localLanc,
+              parcelas: null,
+              inicio_pagto: null,
+              cliente: null,
+              email: null,
+              telefone: null,
+              vendedor: null,
+              status_recb: null,
+            });
+
+          if (lancError) {
+            console.error(
+              'Erro ao registrar lançamento de compra/transferência no Supabase:',
+              lancError,
+            );
+          } else {
+            // Atualiza lista local de lançamentos para aparecer na TelaHistórico
+            setLancamentos((lista) => [
+              ...lista,
+              {
+                data: novaCompra.data,
+                tipo: tipoLanc,
+                cod_produto: prod.codProduto,
+                produto: prod.nome,
+                fornecedor: limparFornecedorTexto(
+                  novaCompra.fornecedor || prod.fornecedor,
+                ),
+                qtde: qtde,
+                valor_bruto: valorTotal,
+                desconto: null,
+                juros: null,
+                valor_liq: valorTotal,
+                forma: formaLanc,
+                nr_venda: null,
+                local: localLanc,
+                parcelas: null,
+                inicio_pagto: null,
+                cliente: null,
+                email: null,
+                telefone: null,
+                vendedor: null,
+                status_recb: null,
+              },
+            ]);
+          }
+        } catch (eLanc) {
+          console.error(
+            'Erro inesperado ao salvar lançamento de compra/transferência no Supabase:',
+            eLanc,
+          );
+        }
 
         alert('Compra / reposição registrada com sucesso!');
 
