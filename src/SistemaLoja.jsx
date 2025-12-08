@@ -1,6 +1,3 @@
-// ========================================================================
-// PARTE 1/4
-// ========================================================================
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   BarChart,
@@ -66,7 +63,7 @@ const SistemaLoja = () => {
   const [telaAtiva, setTelaAtiva] = useState('dashboard');
   const [usuario, setUsuario] = useState('');
   const [perfil, setPerfil] = useState('');
-  const [loginForm, setLoginForm] = useState({ login: '', senha: '' });
+
 
   const [usuarios, setUsuarios] = useState([]);
   const [produtos, setProdutos] = useState([]);
@@ -271,31 +268,29 @@ const SistemaLoja = () => {
     }
   };
 
-  // ======================================================================
-  // LOGIN / LOGOUT
-  // ======================================================================
+// ======================================================================
+// LOGIN / LOGOUT
+// ======================================================================
 
-  const handleLogin = () => {
-    const { login, senha } = loginForm;
+const handleLogin = (login, senha) => {
+  const u = usuarios.find(
+    (usr) =>
+      usr.login.toLowerCase() === String(login).trim().toLowerCase() &&
+      String(usr.senha_hash) === String(senha),
+  );
 
-    const u = usuarios.find(
-      (usr) =>
-        usr.login.toLowerCase() === login.trim().toLowerCase() &&
-        String(usr.senha_hash) === String(senha),
-    );
+  if (!u) {
+    alert('Usuário ou senha inválidos.');
+    return;
+  }
 
-    if (!u) {
-      alert('Usuário ou senha inválidos.');
-      return;
-    }
+  setUsuario(u.nome || u.login);
+  setPerfil(u.perfil);
+  setTelaAtiva('dashboard');
 
-    setUsuario(u.nome || u.login);
-    setPerfil(u.perfil);
-    setTelaAtiva('dashboard');
-
-    localStorage.setItem('usuario', u.nome || u.login);
-    localStorage.setItem('perfil', u.perfil);
-  };
+  localStorage.setItem('usuario', u.nome || u.login);
+  localStorage.setItem('perfil', u.perfil);
+};
 
   const handleLogout = () => {
     setUsuario('');
@@ -305,185 +300,192 @@ const SistemaLoja = () => {
     localStorage.removeItem('perfil');
   };
 
-  // ======================================================================
-  // TELA DE LOGIN (LAYOUT ANTIGO VERDE)
-  // ======================================================================
+// ======================================================================
+// TELA DE LOGIN (LAYOUT ANTIGO VERDE)
+// ======================================================================
 
-  const TelaLogin = () => {
-    const handleSubmit = (e) => {
-      e.preventDefault();
-      handleLogin();
-    };
+const TelaLogin = () => {
+  // estado LOCAL só do formulário de login
+  const [localLogin, setLocalLogin] = useState({ login: '', senha: '' });
 
-    return (
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleLogin(localLogin.login, localLogin.senha);
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#025302',
+        fontFamily: 'Arial, sans-serif',
+        padding: '16px',
+      }}
+    >
       <div
         style={{
-          minHeight: '100vh',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#025302',
-          fontFamily: 'Arial, sans-serif',
-          padding: '16px',
+          gap: '24px',
+          width: '100%',
+          maxWidth: '420px',
         }}
       >
+        {/* LOGO */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
-            gap: '24px',
-            width: '100%',
-            maxWidth: '420px',
+            gap: '8px',
+            textAlign: 'center',
+            color: '#ffffff',
           }}
         >
-          {/* LOGO */}
           <div
             style={{
+              width: '180px',
+              height: '180px',
+              borderRadius: '50%',
+              overflow: 'hidden',
+              background: '#ffffff',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
-              gap: '8px',
-              textAlign: 'center',
-              color: '#ffffff',
+              justifyContent: 'center',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
             }}
           >
-            <div
+            <img
+              src="/logo-wolves.png"
+              alt="Logo"
               style={{
-                width: '180px',
-                height: '180px',
-                borderRadius: '50%',
-                overflow: 'hidden',
-                background: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
               }}
-            >
-              <img
-                src="/logo-wolves.png"
-                alt="Logo"
+            />
+          </div>
+
+          <h1
+            style={{
+              fontSize: '28px',
+              fontWeight: 'bold',
+              marginTop: '4px',
+            }}
+          >
+            Sistema da Loja
+          </h1>
+          <p style={{ fontSize: '13px', opacity: 1 }}>
+            Acesso restrito a administradores, gerentes e vendedores
+          </p>
+        </div>
+
+        {/* CAIXA DE LOGIN */}
+        <div
+          style={{
+            background: '#ffffff',
+            padding: '20px',
+            borderRadius: '8px',
+            boxShadow: '0 8px 20px rgba(0,0,0,0.25)',
+            width: '100%',
+          }}
+        >
+          <form onSubmit={handleSubmit} autoComplete="off">
+            <div style={{ marginBottom: '12px' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  marginBottom: '4px',
+                  color: '#111827',
+                }}
+              >
+                Usuário
+              </label>
+              <input
+                type="text"
+                name="username"
+                autoComplete="off"
+                value={localLogin.login}
+                onChange={(e) =>
+                  setLocalLogin((prev) => ({
+                    ...prev,
+                    login: e.target.value,
+                  }))
+                }
                 style={{
                   width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
+                  padding: '10px',
+                  borderRadius: '4px',
+                  border: '1px solid #ccc',
+                  fontSize: '14px',
                 }}
+                placeholder="Digite seu usuário"
               />
             </div>
 
-            <h1
-              style={{
-                fontSize: '28px',
-                fontWeight: 'bold',
-                marginTop: '4px',
-              }}
-            >
-              Sistema da Loja
-            </h1>
-            <p style={{ fontSize: '13px', opacity: 1 }}>
-              Acesso restrito a administradores, gerentes e vendedores
-            </p>
-          </div>
-
-          {/* CAIXA DE LOGIN */}
-          <div
-            style={{
-              background: '#ffffff',
-              padding: '20px',
-              borderRadius: '8px',
-              boxShadow: '0 8px 20px rgba(0,0,0,0.25)',
-              width: '100%',
-            }}
-          >
-            <form onSubmit={handleSubmit}>
-              <div style={{ marginBottom: '12px' }}>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    marginBottom: '4px',
-                    color: '#111827',
-                  }}
-                >
-                  Usuário
-                </label>
-                <input
-                  type="text"
-                  value={loginForm.login}
-                  onChange={(e) =>
-                    setLoginForm((prev) => ({
-                      ...prev,
-                      login: e.target.value,
-                    }))
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    fontSize: '14px',
-                  }}
-                  placeholder="Digite seu usuário"
-                />
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    marginBottom: '4px',
-                    color: '#111827',
-                  }}
-                >
-                  Senha
-                </label>
-                <input
-                  type="password"
-                  value={loginForm.senha}
-                  onChange={(e) =>
-                    setLoginForm((prev) => ({
-                      ...prev,
-                      senha: e.target.value,
-                    }))
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    fontSize: '14px',
-                  }}
-                  placeholder="Digite sua senha"
-                />
-              </div>
-
-              <button
-                type="submit"
+            <div style={{ marginBottom: '16px' }}>
+              <label
                 style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '4px',
-                  border: 'none',
-                  background: '#16a34a',
-                  color: '#fff',
+                  display: 'block',
+                  fontSize: '14px',
                   fontWeight: 'bold',
-                  fontSize: '15px',
-                  cursor: 'pointer',
+                  marginBottom: '4px',
+                  color: '#111827',
                 }}
               >
-                Entrar
-              </button>
-            </form>
-          </div>
+                Senha
+              </label>
+              <input
+                type="password"
+                name="password"
+                autoComplete="off"
+                value={localLogin.senha}
+                onChange={(e) =>
+                  setLocalLogin((prev) => ({
+                    ...prev,
+                    senha: e.target.value,
+                  }))
+                }
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '4px',
+                  border: '1px solid #ccc',
+                  fontSize: '14px',
+                }}
+                placeholder="Digite sua senha"
+              />
+            </div>
+
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '4px',
+                border: 'none',
+                background: '#16a34a',
+                color: '#fff',
+                fontWeight: 'bold',
+                fontSize: '15px',
+                cursor: 'pointer',
+              }}
+            >
+              Entrar
+            </button>
+          </form>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   // ======================================================================
 // MENU SUPERIOR (SEM DUPLICAR, COM BARRA VERDE)
@@ -755,33 +757,6 @@ const MenuNavegacao = () => {
     return texto || '';
   };
 
-// ========================================================================
-// (a próxima parte começa na definição da TelaVendedor)
-// ========================================================================
-  // ======================================================================
-  // ESTADO / LÓGICA PARA VENDAS
-  // ======================================================================
-  const [novaVenda, setNovaVenda] = useState({
-    data: new Date().toISOString().split('T')[0],
-    cliente: '',
-    email: '',
-    telefone: '',
-    produto: '',
-    codProduto: '',
-    fornecedor: '',
-    qtde: 1,
-    valorBruto: 0,
-    desconto: 0,
-    juros: 0,
-    valorLiq: 0,
-    forma: 'PIX',
-    nrVenda: '',
-    local: 'LOJA',
-    parcelas: 1,
-    inicioPagamento: '',
-    fotoUrl: '',
-  });
-
   // Produtos com saldo positivo em estoque (agrupados)
   const produtosEstoque = useMemo(() => {
     const mapa = new Map();
@@ -827,666 +802,732 @@ const MenuNavegacao = () => {
     const juros = Number(venda.juros || 0);
     return bruto - desc + juros;
   };
+// ======================================================================
+// TELA DO VENDEDOR / LANÇAMENTO DE VENDAS
+// ======================================================================
+const TelaVendedor = () => {
+  // <<< ESTADO LOCAL DA VENDA (AGORA AQUI DENTRO) >>>
+  const [novaVenda, setNovaVenda] = useState({
+    data: new Date().toISOString().split('T')[0],
+    cliente: '',
+    email: '',
+    telefone: '',
+    produto: '',
+    codProduto: '',
+    fornecedor: '',
+    qtde: 1,
+    valorBruto: 0,
+    desconto: 0,
+    juros: 0,
+    valorLiq: 0,
+    forma: 'PIX',
+    nrVenda: '',
+    local: 'LOJA',
+    parcelas: 1,
+    inicioPagamento: '',
+    fotoUrl: '',
+  });
 
-  // ======================================================================
-  // TELA DO VENDEDOR / LANÇAMENTO DE VENDAS
-  // ======================================================================
-  const TelaVendedor = () => {
-    const handleChange = (campo, valor) => {
-      setNovaVenda((prev) => {
-        let novo = { ...prev, [campo]: valor };
+  const handleChange = (campo, valor) => {
+    setNovaVenda((prev) => {
+      let novo = { ...prev, [campo]: valor };
 
-        // Se alterar quantidade, recalcule valor bruto baseado no cadastro
-        if (campo === 'qtde') {
-          const qtde = Number(valor || 0);
-          const prod = produtosEstoque.find(
-            (p) =>
-              String(p.codProduto).toLowerCase() ===
-              String(prev.codProduto || '').toLowerCase(),
-          );
-          const valorUnit = prod ? Number(prod.valorUnitario || 0) : 0;
-          novo.valorBruto = qtde * valorUnit;
-        }
-
-        // Se alterar forma para CREDITO, podemos ajustar o início de pagamento se estiver vazio
-        if (campo === 'forma' && valor === 'CREDITO' && prev.data) {
-          if (!prev.inicioPagamento) {
-            novo.inicioPagamento = calcularInicioPgtoCredito(prev.data);
-          }
-        }
-
-        // Atualiza valor líquido armazenado
-        novo.valorLiq = calcularValorLiquido(novo);
-        return novo;
-      });
-    };
-
-    const selecionarProdutoPorCodigo = (cod) => {
-      setNovaVenda((prev) => {
-        const p = produtosEstoque.find(
-          (x) => String(x.codProduto).toLowerCase() === String(cod).toLowerCase(),
+      // Se alterar quantidade, recalcule valor bruto baseado no cadastro
+      if (campo === 'qtde') {
+        const qtde = Number(valor || 0);
+        const prod = produtosEstoque.find(
+          (p) =>
+            String(p.codProduto).toLowerCase() ===
+            String(prev.codProduto || '').toLowerCase(),
         );
-        if (!p) {
-          return {
-            ...prev,
-            codProduto: cod,
-            produto: '',
-            fornecedor: '',
-            valorBruto: 0,
-            valorLiq: 0,
-            fotoUrl: '',
-          };
+        const valorUnit = prod ? Number(prod.valorUnitario || 0) : 0;
+        novo.valorBruto = qtde * valorUnit;
+      }
+
+      // Se alterar forma para CREDITO, podemos ajustar o início de pagamento se estiver vazio
+      if (campo === 'forma' && valor === 'CREDITO' && prev.data) {
+        if (!prev.inicioPagamento) {
+          novo.inicioPagamento = calcularInicioPgtoCredito(prev.data);
         }
-
-        const qtde = Number(prev.qtde || 1);
-        const valorBruto = qtde * Number(p.valorUnitario || 0);
-
-        const base = {
-          ...prev,
-          codProduto: p.codProduto,
-          produto: p.produto,
-          fornecedor: p.fornecedor,
-          valorBruto,
-          fotoUrl: p.fotoUrl || '',
-        };
-        return {
-          ...base,
-          valorLiq: calcularValorLiquido(base),
-        };
-      });
-    };
-
-    const selecionarProdutoPorNome = (nome) => {
-      setNovaVenda((prev) => {
-        const p = produtosEstoque.find(
-          (x) => String(x.produto || '').toLowerCase() === String(nome).toLowerCase(),
-        );
-        if (!p) {
-          return {
-            ...prev,
-            produto: nome,
-            codProduto: '',
-            fornecedor: '',
-            valorBruto: 0,
-            valorLiq: 0,
-            fotoUrl: '',
-          };
-        }
-
-        const qtde = Number(prev.qtde || 1);
-        const valorBruto = qtde * Number(p.valorUnitario || 0);
-
-        const base = {
-          ...prev,
-          codProduto: p.codProduto,
-          produto: p.produto,
-          fornecedor: p.fornecedor,
-          valorBruto,
-          fotoUrl: p.fotoUrl || '',
-        };
-        return {
-          ...base,
-          valorLiq: calcularValorLiquido(base),
-        };
-      });
-    };
-
-    const registrarVenda = async () => {
-      // validações básicas
-      if (!novaVenda.codProduto) {
-        alert('Selecione um produto pelo código.');
-        return;
-      }
-      if (!novaVenda.produto) {
-        alert('Selecione/Confirme o produto.');
-        return;
-      }
-      if (!novaVenda.qtde || Number(novaVenda.qtde) <= 0) {
-        alert('Informe uma quantidade maior que zero.');
-        return;
       }
 
-      const prod = produtosEstoque.find(
-        (p) =>
-          String(p.codProduto).toLowerCase() ===
-          String(novaVenda.codProduto || '').toLowerCase(),
+      // Atualiza valor líquido armazenado
+      novo.valorLiq = calcularValorLiquido(novo);
+      return novo;
+    });
+  };
+
+  const selecionarProdutoPorCodigo = (cod) => {
+    setNovaVenda((prev) => {
+      const p = produtosEstoque.find(
+        (x) =>
+          String(x.codProduto).toLowerCase() === String(cod).toLowerCase(),
       );
-      if (!prod) {
-        alert('Produto não encontrado no estoque.');
-        return;
+      if (!p) {
+        return {
+          ...prev,
+          codProduto: cod,
+          produto: '',
+          fornecedor: '',
+          valorBruto: 0,
+          valorLiq: 0,
+          fotoUrl: '',
+        };
       }
 
-      // verifica se tem quantidade em estoque na LOJA
-      const somaLoja = estoque
-        .filter(
-          (mov) =>
-            mov.local === 'LOJA' &&
-            String(mov.cod_produto).toLowerCase() ===
-              String(novaVenda.codProduto || '').toLowerCase(),
-        )
-        .reduce((acc, mov) => acc + Number(mov.qtde || 0), 0);
+      const qtde = Number(prev.qtde || 1);
+      const valorBruto = qtde * Number(p.valorUnitario || 0);
 
-      if (somaLoja < Number(novaVenda.qtde || 0)) {
-        const confirma = window.confirm(
-          `Atenção: Estoque em LOJA insuficiente (há ${somaLoja} un.). Deseja continuar mesmo assim?`,
+      const base = {
+        ...prev,
+        codProduto: p.codProduto,
+        produto: p.produto,
+        fornecedor: p.fornecedor,
+        valorBruto,
+        fotoUrl: p.fotoUrl || '',
+      };
+      return {
+        ...base,
+        valorLiq: calcularValorLiquido(base),
+      };
+    });
+  };
+
+  const selecionarProdutoPorNome = (nome) => {
+    setNovaVenda((prev) => {
+      const p = produtosEstoque.find(
+        (x) =>
+          String(x.produto || '').toLowerCase() ===
+          String(nome).toLowerCase(),
+      );
+      if (!p) {
+        return {
+          ...prev,
+          produto: nome,
+          codProduto: '',
+          fornecedor: '',
+          valorBruto: 0,
+          valorLiq: 0,
+          fotoUrl: '',
+        };
+      }
+
+      const qtde = Number(prev.qtde || 1);
+      const valorBruto = qtde * Number(p.valorUnitario || 0);
+
+      const base = {
+        ...prev,
+        codProduto: p.codProduto,
+        produto: p.produto,
+        fornecedor: p.fornecedor,
+        valorBruto,
+        fotoUrl: p.fotoUrl || '',
+      };
+      return {
+        ...base,
+        valorLiq: calcularValorLiquido(base),
+      };
+    });
+  };
+
+  const registrarVenda = async () => {
+    // validações básicas
+    if (!novaVenda.codProduto) {
+      alert('Selecione um produto pelo código.');
+      return;
+    }
+    if (!novaVenda.produto) {
+      alert('Selecione/Confirme o produto.');
+      return;
+    }
+    if (!novaVenda.qtde || Number(novaVenda.qtde) <= 0) {
+      alert('Informe uma quantidade maior que zero.');
+      return;
+    }
+
+    const prod = produtosEstoque.find(
+      (p) =>
+        String(p.codProduto).toLowerCase() ===
+        String(novaVenda.codProduto || '').toLowerCase(),
+    );
+    if (!prod) {
+      alert('Produto não encontrado no estoque.');
+      return;
+    }
+
+    // verifica se tem quantidade em estoque na LOJA
+    const somaLoja = estoque
+      .filter(
+        (mov) =>
+          mov.local === 'LOJA' &&
+          String(mov.cod_produto).toLowerCase() ===
+            String(novaVenda.codProduto || '').toLowerCase(),
+      )
+      .reduce((acc, mov) => acc + Number(mov.qtde || 0), 0);
+
+    if (somaLoja < Number(novaVenda.qtde || 0)) {
+      const confirma = window.confirm(
+        `Atenção: Estoque em LOJA insuficiente (há ${somaLoja} un.). Deseja continuar mesmo assim?`,
+      );
+      if (!confirma) return;
+    }
+
+    const valorUnitario = Number(prod.valorUnitario || 0);
+    const qtde = Number(novaVenda.qtde || 0);
+    const valorBruto = valorUnitario * qtde;
+
+    const valorLiq = calcularValorLiquido({
+      ...novaVenda,
+      valorBruto,
+    });
+
+    // Geração de nrVenda se estiver vazio
+    let nrVendaFinal = novaVenda.nrVenda;
+    if (!nrVendaFinal && novaVenda.data) {
+      nrVendaFinal = gerarNumeroVenda(novaVenda.data);
+    }
+
+    // Ajuste do início de pagamento no CRÉDITO
+    let inicioPgto = novaVenda.inicioPagamento;
+    if (novaVenda.forma === 'CREDITO') {
+      inicioPgto = calcularInicioPgtoCredito(novaVenda.data);
+    }
+
+    const lancVenda = {
+      ...novaVenda,
+      codProduto: prod.codProduto,
+      produto: prod.produto,
+      fornecedor: prod.fornecedor,
+      valorBruto,
+      valorLiq,
+      nrVenda: nrVendaFinal,
+      inicioPagamento: inicioPgto,
+      qtde,
+    };
+
+    // 1) Movimento de estoque (saída na LOJA)
+    const movimentoBase = {
+      cod_produto: lancVenda.codProduto,
+      produto: lancVenda.produto,
+      fornecedor: limparFornecedorTexto(lancVenda.fornecedor),
+      local: 'LOJA',
+      qtde: -qtde,
+      data_entrada: lancVenda.data,
+    };
+
+    let movimentoInserido = null;
+
+    try {
+      const { data: movData, error: movError } = await supabase
+        .from('estoque')
+        .insert(movimentoBase)
+        .select(
+          'id, cod_produto, produto, fornecedor, local, qtde, data_entrada',
         );
-        if (!confirma) return;
+
+      if (movError) {
+        console.error(
+          'Erro ao registrar movimento de estoque da venda:',
+          movError,
+        );
+      } else if (movData && movData.length > 0) {
+        movimentoInserido = movData[0];
       }
+    } catch (e) {
+      console.error(
+        'Erro inesperado ao registrar movimento de estoque da venda:',
+        e,
+      );
+    }
 
-      const valorUnitario = Number(prod.valorUnitario || 0);
-      const qtde = Number(novaVenda.qtde || 0);
-      const valorBruto = valorUnitario * qtde;
+    // Mesmo que o Supabase dê erro, garante o movimento no estado local
+    if (!movimentoInserido) {
+      movimentoInserido = {
+        id: Date.now(), // id fake só para controle local
+        ...movimentoBase,
+      };
+    }
 
-      const valorLiq = calcularValorLiquido({
-        ...novaVenda,
-        valorBruto,
-      });
+    setEstoque((lista) => [...lista, movimentoInserido]);
 
-      // Geração de nrVenda se estiver vazio
-      let nrVendaFinal = novaVenda.nrVenda;
-      if (!nrVendaFinal && novaVenda.data) {
-        nrVendaFinal = gerarNumeroVenda(novaVenda.data);
-      }
-
-      // Ajuste do início de pagamento no CRÉDITO
-      let inicioPgto = novaVenda.inicioPagamento;
-      if (novaVenda.forma === 'CREDITO') {
-        inicioPgto = calcularInicioPgtoCredito(novaVenda.data);
-      }
-
-      const lancVenda = {
-        ...novaVenda,
-        codProduto: prod.codProduto,
-        produto: prod.produto,
-        fornecedor: prod.fornecedor,
-        valorBruto,
-        valorLiq,
-        nrVenda: nrVendaFinal,
-        inicioPagamento: inicioPgto,
-        qtde,
+    // 3) Se for promissória, salva também em promissórias
+    if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
+      const promBase = {
+        nrVenda: lancVenda.nrVenda,
+        cliente: lancVenda.cliente,
+        email: lancVenda.email,
+        valor: lancVenda.valorLiq,
+        dataInicio: lancVenda.inicioPagamento || lancVenda.data,
+        parcelas: lancVenda.parcelas || 1,
+        parcelasAtrasadas: 0,
+        status: 'ABERTO',
+        selecionado: false,
       };
 
-      // 1) Movimento de estoque (saída na LOJA)
-      const movimentoBase = {
+      try {
+        const { data: promDb, error: promError } = await supabase
+          .from('promissorias')
+          .insert({
+            nr_venda: promBase.nrVenda,
+            cliente: promBase.cliente,
+            email: promBase.email,
+            valor: promBase.valor,
+            data_inicio: promBase.dataInicio,
+            parcelas: promBase.parcelas,
+            parcelas_atra: promBase.parcelasAtrasadas,
+            status: promBase.status,
+            selecionado: promBase.selecionado,
+          })
+          .select(
+            'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
+          )
+          .single();
+
+        if (promError) {
+          console.error('Erro ao salvar promissória no Supabase:', promError);
+          setPromissorias((lista) => [...lista, promBase]);
+        } else {
+          const novaProm = {
+            id: promDb.id,
+            nrVenda: promDb.nr_venda,
+            cliente: promDb.cliente,
+            email: promDb.email,
+            valor: Number(promDb.valor || 0),
+            dataInicio: promDb.data_inicio,
+            parcelas: promDb.parcelas || 0,
+            parcelasAtrasadas: promDb.parcelas_atra || 0,
+            status: promDb.status || 'ABERTO',
+            selecionado: !!promDb.selecionado,
+          };
+          setPromissorias((lista) => [...lista, novaProm]);
+        }
+      } catch (e) {
+        console.error('Erro inesperado ao salvar promissória:', e);
+        setPromissorias((lista) => [...lista, promBase]);
+      }
+    }
+
+    // 4) Salvar venda no Supabase (tabela lançamentos)
+    try {
+      const nrVendaNumero =
+        parseInt(
+          (lancVenda.nrVenda || '').includes('-')
+            ? lancVenda.nrVenda.split('-')[1]
+            : lancVenda.nrVenda,
+          10,
+        ) || null;
+
+      const { error } = await supabase.from('lancamentos').insert({
+        data: lancVenda.data,
+        tipo: 'VENDA',
         cod_produto: lancVenda.codProduto,
         produto: lancVenda.produto,
-        fornecedor: limparFornecedorTexto(lancVenda.fornecedor),
+        fornecedor: lancVenda.fornecedor,
+        qtde: lancVenda.qtde,
+        valor_bruto: lancVenda.valorBruto,
+        desconto: lancVenda.desconto,
+        juros: lancVenda.juros,
+        valor_liq: lancVenda.valorLiq,
+        forma: lancVenda.forma,
+        nr_venda: nrVendaNumero,
         local: 'LOJA',
-        qtde: -qtde,
-        data_entrada: lancVenda.data,
+        parcelas:
+          (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+            ? lancVenda.parcelas
+            : null,
+        inicio_pagto: lancVenda.inicioPagamento || null,
+        cliente: lancVenda.cliente,
+        email: lancVenda.email,
+        telefone: lancVenda.telefone,
+        vendedor: lancVenda.vendedor,
+        status_recb:
+          (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+            ? 'PENDENTE'
+            : 'RECEBIDO',
+      });
+
+      if (error) {
+        console.error('Erro ao salvar venda no Supabase:', error);
+        alert('Venda lançada localmente, mas houve erro ao salvar na nuvem.');
+      } else {
+        // Atualiza lista local de lançamentos
+        setLancamentos((lista) => [
+          ...lista,
+          {
+            data: lancVenda.data,
+            tipo: 'VENDA',
+            cod_produto: lancVenda.codProduto,
+            produto: lancVenda.produto,
+            fornecedor: lancVenda.fornecedor,
+            qtde: lancVenda.qtde,
+            valor_bruto: lancVenda.valorBruto,
+            desconto: lancVenda.desconto,
+            juros: lancVenda.juros,
+            valor_liq: lancVenda.valorLiq,
+            forma: lancVenda.forma,
+            nr_venda: nrVendaNumero,
+            local: 'LOJA',
+            parcelas:
+              (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+                ? lancVenda.parcelas
+                : null,
+            inicio_pagto: lancVenda.inicioPagamento || null,
+            cliente: lancVenda.cliente,
+            email: lancVenda.email,
+            telefone: lancVenda.telefone,
+            vendedor: lancVenda.vendedor,
+            status_recb:
+              (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+                ? 'PENDENTE'
+                : 'RECEBIDO',
+          },
+        ]);
+      }
+    } catch (e) {
+      console.error('Erro inesperado ao salvar venda no Supabase:', e);
+      alert('Venda lançada localmente, mas houve erro inesperado na nuvem.');
+    }
+
+    alert('Venda registrada com sucesso!');
+
+    // 5) Limpa formulário (usa o mesmo estado local)
+    setNovaVenda({
+      data: new Date().toISOString().split('T')[0],
+      cliente: '',
+      email: '',
+      telefone: '',
+      produto: '',
+      codProduto: '',
+      fornecedor: '',
+      qtde: 1,
+      valorBruto: 0,
+      desconto: 0,
+      juros: 0,
+      valorLiq: 0,
+      forma: 'PIX',
+      nrVenda: '',
+      local: 'LOJA',
+      parcelas: 1,
+      inicioPagamento: '',
+      fotoUrl: '',
+    });
+  };
+
+  // Produtos com saldo positivo em estoque (agrupados) – continua igual
+  const produtosEstoque = useMemo(() => {
+    const mapa = new Map();
+
+    estoque.forEach((mov) => {
+      const cod = mov.cod_produto;
+      if (!cod) return;
+      const chave = String(cod);
+
+      const anterior = mapa.get(chave) || {
+        codProduto: cod,
+        produto: mov.produto || '',
+        fornecedor: limparFornecedorTexto(mov.fornecedor || ''),
+        qtde: 0,
+        valorUnitario: 0,
+        fotoUrl: '',
       };
 
-      let movimentoInserido = null;
+      const prodCadastro = produtos.find((p) => p.codProduto === cod);
 
-      try {
-        const { data: movData, error: movError } = await supabase
-          .from('estoque')
-          .insert(movimentoBase)
-          .select(
-            'id, cod_produto, produto, fornecedor, local, qtde, data_entrada',
-          );
+      const novo = {
+        codProduto: cod,
+        produto: mov.produto || prodCadastro?.nome || anterior.produto,
+        fornecedor: limparFornecedorTexto(
+          mov.fornecedor || prodCadastro?.fornecedor || anterior.fornecedor,
+        ),
+        qtde: anterior.qtde + Number(mov.qtde || 0),
+        valorUnitario: prodCadastro
+          ? Number(prodCadastro.valorUnitario || 0)
+          : anterior.valorUnitario,
+        fotoUrl: prodCadastro?.fotoUrl || anterior.fotoUrl,
+      };
 
-        if (movError) {
-          console.error('Erro ao registrar movimento de estoque da venda:', movError);
-        } else if (movData && movData.length > 0) {
-          movimentoInserido = movData[0];
-        }
-      } catch (e) {
-        console.error(
-          'Erro inesperado ao registrar movimento de estoque da venda:',
-          e,
-        );
-      }
+      mapa.set(chave, novo);
+    });
 
-      // Mesmo que o Supabase dê erro, garante o movimento no estado local
-      if (!movimentoInserido) {
-        movimentoInserido = {
-          id: Date.now(), // id fake só para controle local
-          ...movimentoBase,
-        };
-      }
+    return Array.from(mapa.values()).filter((p) => p.qtde > 0);
+  }, [estoque, produtos]);
 
-      setEstoque((lista) => [...lista, movimentoInserido]);
+  return (
+    <div className="p-6 space-y-6" style={appStyle}>
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-2xl font-bold mb-4">Lançamento de Venda</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Preencha os dados da venda. O estoque da <strong>LOJA</strong> será
+          atualizado automaticamente.
+        </p>
 
-      // 3) Se for promissória, salva também em promissórias
-      if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
-        const promBase = {
-          nrVenda: lancVenda.nrVenda,
-          cliente: lancVenda.cliente,
-          email: lancVenda.email,
-          valor: lancVenda.valorLiq,
-          dataInicio: lancVenda.inicioPagamento || lancVenda.data,
-          parcelas: lancVenda.parcelas || 1,
-          parcelasAtrasadas: 0,
-          status: 'ABERTO',
-          selecionado: false,
-        };
-
-        try {
-          const { data: promDb, error: promError } = await supabase
-            .from('promissorias')
-            .insert({
-              nr_venda: promBase.nrVenda,
-              cliente: promBase.cliente,
-              email: promBase.email,
-              valor: promBase.valor,
-              data_inicio: promBase.dataInicio,
-              parcelas: promBase.parcelas,
-              parcelas_atra: promBase.parcelasAtrasadas,
-              status: promBase.status,
-              selecionado: promBase.selecionado,
-            })
-            .select(
-              'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
-            )
-            .single();
-
-          if (promError) {
-            console.error('Erro ao salvar promissória no Supabase:', promError);
-            setPromissorias((lista) => [...lista, promBase]);
-          } else {
-            const novaProm = {
-              id: promDb.id,
-              nrVenda: promDb.nr_venda,
-              cliente: promDb.cliente,
-              email: promDb.email,
-              valor: Number(promDb.valor || 0),
-              dataInicio: promDb.data_inicio,
-              parcelas: promDb.parcelas || 0,
-              parcelasAtrasadas: promDb.parcelas_atra || 0,
-              status: promDb.status || 'ABERTO',
-              selecionado: !!promDb.selecionado,
-            };
-            setPromissorias((lista) => [...lista, novaProm]);
-          }
-        } catch (e) {
-          console.error('Erro inesperado ao salvar promissória:', e);
-          setPromissorias((lista) => [...lista, promBase]);
-        }
-      }
-
-      // 4) Salvar venda no Supabase (tabela lançamentos)
-      try {
-        const nrVendaNumero =
-          parseInt(
-            (lancVenda.nrVenda || '').includes('-')
-              ? lancVenda.nrVenda.split('-')[1]
-              : lancVenda.nrVenda,
-            10,
-          ) || null;
-
-        const { error } = await supabase.from('lancamentos').insert({
-          data: lancVenda.data,
-          tipo: 'VENDA',
-          cod_produto: lancVenda.codProduto,
-          produto: lancVenda.produto,
-          fornecedor: lancVenda.fornecedor,
-          qtde: lancVenda.qtde,
-          valor_bruto: lancVenda.valorBruto,
-          desconto: lancVenda.desconto,
-          juros: lancVenda.juros,
-          valor_liq: lancVenda.valorLiq,
-          forma: lancVenda.forma,
-          nr_venda: nrVendaNumero,
-          local: 'LOJA',
-          parcelas:
-            (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-              ? lancVenda.parcelas
-              : null,
-          inicio_pagto: lancVenda.inicioPagamento || null,
-          cliente: lancVenda.cliente,
-          email: lancVenda.email,
-          telefone: lancVenda.telefone,
-          vendedor: lancVenda.vendedor,
-          status_recb:
-            (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-              ? 'PENDENTE'
-              : 'RECEBIDO',
-        });
-
-        if (error) {
-          console.error('Erro ao salvar venda no Supabase:', error);
-          alert('Venda lançada localmente, mas houve erro ao salvar na nuvem.');
-        } else {
-          // Atualiza lista local de lançamentos
-          setLancamentos((lista) => [
-            ...lista,
-            {
-              data: lancVenda.data,
-              tipo: 'VENDA',
-              cod_produto: lancVenda.codProduto,
-              produto: lancVenda.produto,
-              fornecedor: lancVenda.fornecedor,
-              qtde: lancVenda.qtde,
-              valor_bruto: lancVenda.valorBruto,
-              desconto: lancVenda.desconto,
-              juros: lancVenda.juros,
-              valor_liq: lancVenda.valorLiq,
-              forma: lancVenda.forma,
-              nr_venda: nrVendaNumero,
-              local: 'LOJA',
-              parcelas:
-                (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-                  ? lancVenda.parcelas
-                  : null,
-              inicio_pagto: lancVenda.inicioPagamento || null,
-              cliente: lancVenda.cliente,
-              email: lancVenda.email,
-              telefone: lancVenda.telefone,
-              vendedor: lancVenda.vendedor,
-              status_recb:
-                (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-                  ? 'PENDENTE'
-                  : 'RECEBIDO',
-            },
-          ]);
-        }
-      } catch (e) {
-        console.error('Erro inesperado ao salvar venda no Supabase:', e);
-        alert('Venda lançada localmente, mas houve erro inesperado na nuvem.');
-      }
-
-      alert('Venda registrada com sucesso!');
-
-      // 5) Limpa formulário
-      setNovaVenda({
-        data: new Date().toISOString().split('T')[0],
-        cliente: '',
-        email: '',
-        telefone: '',
-        produto: '',
-        codProduto: '',
-        fornecedor: '',
-        qtde: 1,
-        valorBruto: 0,
-        desconto: 0,
-        juros: 0,
-        valorLiq: 0,
-        forma: 'PIX',
-        nrVenda: '',
-        local: 'LOJA',
-        parcelas: 1,
-        inicioPagamento: '',
-        fotoUrl: '',
-      });
-    };
-
-    return (
-      <div className="p-6 space-y-6" style={appStyle}>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-bold mb-4">Lançamento de Venda</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Preencha os dados da venda. O estoque da <strong>LOJA</strong> será
-            atualizado automaticamente.
-          </p>
-
-          <div className="flex flex-col md:flex-row gap-6">
-            {/* FORMULÁRIO PRINCIPAL */}
-            <div className="flex-1">
-              {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Data</label>
-                  <input
-                    type="date"
-                    value={novaVenda.data}
-                    onChange={(e) => handleChange('data', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Nr Venda</label>
-                  <input
-                    type="text"
-                    value={novaVenda.nrVenda}
-                    onChange={(e) => handleChange('nrVenda', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                    placeholder="Gerado automaticamente"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Forma de pagamento
-                  </label>
-                  <select
-                    value={novaVenda.forma}
-                    onChange={(e) => handleChange('forma', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="PIX">PIX</option>
-                    <option value="DEBITO">Débito</option>
-                    <option value="CREDITO">Crédito</option>
-                    <option value="DINHEIRO">Dinheiro</option>
-                    <option value="PROMISSORIA">Promissória</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Qtd Parcelas
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={novaVenda.parcelas}
-                    onChange={(e) =>
-                      handleChange('parcelas', Number(e.target.value))
-                    }
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Data inicial de pagamento
-                  </label>
-                  <input
-                    type="date"
-                    value={novaVenda.inicioPagamento}
-                    onChange={(e) =>
-                      handleChange('inicioPagamento', e.target.value)
-                    }
-                    disabled={novaVenda.forma === 'CREDITO'}
-                    className={`w-full px-3 py-2 border rounded-lg ${
-                      novaVenda.forma === 'CREDITO'
-                        ? 'bg-gray-100 text-gray-500'
-                        : ''
-                    }`}
-                  />
-                  {novaVenda.forma === 'CREDITO' && (
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      Para crédito, o início é calculado para o dia 5 do mês
-                      seguinte.
-                    </p>
-                  )}
-                </div>
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* FORMULÁRIO PRINCIPAL */}
+          <div className="flex-1">
+            {/* Linha 1 - Data, Nr Venda, Forma, Parcelas, Início Pagamento */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
+              <div>
+                <label className="block font-semibold mb-1">Data</label>
+                <input
+                  type="date"
+                  value={novaVenda.data}
+                  onChange={(e) => handleChange('data', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
               </div>
-
-              {/* Linha 2 - Cliente */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">Cliente</label>
-                  <input
-                    type="text"
-                    value={novaVenda.cliente}
-                    onChange={(e) => handleChange('cliente', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">E-mail</label>
-                  <input
-                    type="email"
-                    value={novaVenda.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Telefone</label>
-                  <input
-                    type="text"
-                    value={novaVenda.telefone}
-                    onChange={(e) => handleChange('telefone', e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
+              <div>
+                <label className="block font-semibold mb-1">Nr Venda</label>
+                <input
+                  type="text"
+                  value={novaVenda.nrVenda}
+                  onChange={(e) => handleChange('nrVenda', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Gerado automaticamente"
+                />
               </div>
-
-              {/* Linha 3 - Produto */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Código Produto
-                  </label>
-                  <select
-                    value={novaVenda.codProduto}
-                    onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="">Selecione...</option>
-                    {produtosEstoque.map((p) => (
-                      <option key={p.codProduto} value={p.codProduto}>
-                        {p.codProduto}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Produto</label>
-                  <select
-                    value={novaVenda.produto}
-                    onChange={(e) => selecionarProdutoPorNome(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                  >
-                    <option value="">Selecione...</option>
-                    {produtosEstoque.map((p) => (
-                      <option key={p.codProduto} value={p.produto}>
-                        {p.produto}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Fornecedor</label>
-                  <input
-                    type="text"
-                    value={novaVenda.fornecedor}
-                    onChange={(e) =>
-                      handleChange('fornecedor', e.target.value)
-                    }
-                    className="w-full px-3 py-2 border rounded-lg"
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Quantidade
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={novaVenda.qtde}
-                    onChange={(e) =>
-                      handleChange('qtde', Number(e.target.value))
-                    }
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Forma de pagamento
+                </label>
+                <select
+                  value={novaVenda.forma}
+                  onChange={(e) => handleChange('forma', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="PIX">PIX</option>
+                  <option value="DEBITO">Débito</option>
+                  <option value="CREDITO">Crédito</option>
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="PROMISSORIA">Promissória</option>
+                </select>
               </div>
-
-              {/* Linha 4 - Valores */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Valor Bruto (R$)
-                  </label>
-                  <input
-                    type="text"
-                    value={novaVenda.valorBruto
-                      .toFixed(2)
-                      .replace('.', ',')}
-                    readOnly
-                    className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Desconto (R$)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={novaVenda.desconto}
-                    onChange={(e) =>
-                      handleChange('desconto', Number(e.target.value))
-                    }
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Juros (R$)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={novaVenda.juros}
-                    onChange={(e) =>
-                      handleChange('juros', Number(e.target.value))
-                    }
-                    className="w-full px-3 py-2 border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">
-                    Valor final da venda (R$)
-                  </label>
-                  <input
-                    type="text"
-                    disabled
-                    value={formatarReal(calcularValorLiquido(novaVenda))}
-                    className="w-full px-3 py-2 border rounded-lg bg-gray-100"
-                  />
-                </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Qtd Parcelas
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={novaVenda.parcelas}
+                  onChange={(e) =>
+                    handleChange('parcelas', Number(e.target.value))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
               </div>
-
-              <button
-                onClick={registrarVenda}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
-              >
-                Registrar Venda
-              </button>
-            </div>
-
-            {/* PRÉ-VISUALIZAÇÃO DA FOTO */}
-            <div className="w-full md:w-72 lg:w-80">
-              <div className="text-sm font-semibold mb-1">Foto do produto</div>
-              <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
-                {novaVenda.fotoUrl ? (
-                  <img
-                    src={novaVenda.fotoUrl}
-                    alt="Foto do produto"
-                    className="w-full h-full object-contain"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = '';
-                    }}
-                  />
-                ) : (
-                  <span className="text-xs text-gray-500 text-center px-2">
-                    Ao selecionar um produto com foto cadastrada, a imagem
-                    aparecerá aqui.
-                  </span>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Data inicial de pagamento
+                </label>
+                <input
+                  type="date"
+                  value={novaVenda.inicioPagamento}
+                  onChange={(e) =>
+                    handleChange('inicioPagamento', e.target.value)
+                  }
+                  disabled={novaVenda.forma === 'CREDITO'}
+                  className={`w-full px-3 py-2 border rounded-lg ${
+                    novaVenda.forma === 'CREDITO'
+                      ? 'bg-gray-100 text-gray-500'
+                      : ''
+                  }`}
+                />
+                {novaVenda.forma === 'CREDITO' && (
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Para crédito, o início é calculado para o dia 5 do mês
+                    seguinte.
+                  </p>
                 )}
               </div>
+            </div>
+
+            {/* Linha 2 - Cliente */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
+              <div>
+                <label className="block font-semibold mb-1">Cliente</label>
+                <input
+                  type="text"
+                  value={novaVenda.cliente}
+                  onChange={(e) => handleChange('cliente', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">E-mail</label>
+                <input
+                  type="email"
+                  value={novaVenda.email}
+                  onChange={(e) => handleChange('email', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Telefone</label>
+                <input
+                  type="text"
+                  value={novaVenda.telefone}
+                  onChange={(e) => handleChange('telefone', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+            </div>
+
+            {/* Linha 3 - Produto */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+              <div>
+                <label className="block font-semibold mb-1">
+                  Código Produto
+                </label>
+                <select
+                  value={novaVenda.codProduto}
+                  onChange={(e) =>
+                    selecionarProdutoPorCodigo(e.target.value)
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.codProduto}>
+                      {p.codProduto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Produto</label>
+                <select
+                  value={novaVenda.produto}
+                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Selecione...</option>
+                  {produtosEstoque.map((p) => (
+                    <option key={p.codProduto} value={p.produto}>
+                      {p.produto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Fornecedor</label>
+                <input
+                  type="text"
+                  value={novaVenda.fornecedor}
+                  onChange={(e) =>
+                    handleChange('fornecedor', e.target.value)
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Quantidade
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={novaVenda.qtde}
+                  onChange={(e) =>
+                    handleChange('qtde', Number(e.target.value))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+            </div>
+
+            {/* Linha 4 - Valores */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+              <div>
+                <label className="block font-semibold mb-1">
+                  Valor Bruto (R$)
+                </label>
+                <input
+                  type="text"
+                  value={novaVenda.valorBruto.toFixed(2).replace('.', ',')}
+                  readOnly
+                  className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-700"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Desconto (R$)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={novaVenda.desconto}
+                  onChange={(e) =>
+                    handleChange('desconto', Number(e.target.value))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Juros (R$)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={novaVenda.juros}
+                  onChange={(e) =>
+                    handleChange('juros', Number(e.target.value))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  Valor final da venda (R$)
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={formatarReal(calcularValorLiquido(novaVenda))}
+                  className="w-full px-3 py-2 border rounded-lg bg-gray-100"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={registrarVenda}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
+            >
+              Registrar Venda
+            </button>
+          </div>
+
+          {/* PRÉ-VISUALIZAÇÃO DA FOTO */}
+          <div className="w-full md:w-72 lg:w-80">
+            <div className="text-sm font-semibold mb-1">Foto do produto</div>
+            <div className="border-4 border-gray-800 rounded-lg w-full aspect-square flex items-center justify-center overflow-hidden bg-gray-50">
+              {novaVenda.fotoUrl ? (
+                <img
+                  src={novaVenda.fotoUrl}
+                  alt="Foto do produto"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = '';
+                  }}
+                />
+              ) : (
+                <span className="text-xs text-gray-500 text-center px-2">
+                  Ao selecionar um produto com foto cadastrada, a imagem
+                  aparecerá aqui.
+                </span>
+              )}
             </div>
           </div>
         </div>
       </div>
-    );
-  };
-
+    </div>
+  );
+};
+  
   // Coloque o caminho/URL correto da sua logo aqui:
   const LOGO_EMPRESA_URL = '/logo-loja.png';
 
@@ -2001,10 +2042,7 @@ const MenuNavegacao = () => {
       </div>
     );
   };
-  // ======================================================================
-  // (continua na PARTE 3/4: Inventário e Produtos/Compras)
-  // ======================================================================
-  // ======================================================================
+   // ======================================================================
   // TELA DE INVENTÁRIO
   // ======================================================================
   const TelaInventario = () => {
@@ -3292,9 +3330,6 @@ const MenuNavegacao = () => {
       </div>
     );
   };
-  // ======================================================================
-  // (continua na PARTE 4/4: Promissórias, Pagamento e Usuários)
-  // ======================================================================
   // ========================================================================
   // TELA DE PROMISSÓRIAS
   // ========================================================================
