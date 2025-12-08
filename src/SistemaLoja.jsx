@@ -486,117 +486,121 @@ const SistemaLoja = () => {
   };
 
   // ======================================================================
-  // MENU SUPERIOR (SEM DUPLICAR, COM BARRA VERDE)
-  // ======================================================================
+// MENU SUPERIOR (SEM DUPLICAR, COM BARRA VERDE)
+// ======================================================================
 
-  const MenuNavegacao = () => {
-    if (!perfil) return null;
+const MenuNavegacao = () => {
+  if (!perfil) return null;
 
-    const itens = [
-      { id: 'dashboard', label: 'Painel' },
-      { id: 'vendedor', label: 'Lançamentos (Vendas)' },
-      { id: 'historico', label: 'Histórico' },
-      { id: 'inventario', label: 'Inventário' },
-      { id: 'produtos', label: 'Produtos / Compras' },
-      { id: 'promissorias', label: 'Promissórias' },
-    ];
+  const itens = [
+    { id: 'dashboard', label: 'Painel' },
+    { id: 'vendedor', label: 'Lançamentos (Vendas)' },
+    { id: 'historico', label: 'Histórico' },
+    { id: 'inventario', label: 'Inventário' },
+    { id: 'produtos', label: 'Produtos / Compras' },
+    { id: 'promissorias', label: 'Promissórias' },
+  ];
 
-    if (perfil === 'ADM') {
-      itens.push({ id: 'usuarios', label: 'Usuários' });
-    }
+  // Somente ADM enxerga Pag. Promissórias e Usuários
+  if (perfil === 'ADM') {
+    itens.push(
+      { id: 'pagamentoPromissorias', label: 'Pag. Promissórias' },
+      { id: 'usuarios', label: 'Usuários' },
+    );
+  }
 
-    return (
-      <header
+  return (
+    <header
+      style={{
+        backgroundColor: '#025302',
+        color: '#ffffff',
+        padding: '8px 16px',
+      }}
+    >
+      <div
         style={{
-          backgroundColor: '#025302',
-          color: '#ffffff',
-          padding: '8px 16px',
+          maxWidth: '1200px',
+          margin: '0 auto',
         }}
       >
         <div
           style={{
-            maxWidth: '1200px',
-            margin: '0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '8px',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '8px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <img
-                src="/logo-wolves.png"
-                alt="Logo"
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '50%',
-                  objectFit: 'contain',
-                  backgroundColor: '#ffffff',
-                }}
-              />
-              <div>
-                <div style={{ fontWeight: 'bold', fontSize: '14px' }}>
-                  Sistema da Loja
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                  Usuário: {usuario} ({perfil})
-                </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <img
+              src="/logo-wolves.png"
+              alt="Logo"
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                objectFit: 'contain',
+                backgroundColor: '#ffffff',
+              }}
+            />
+            <div>
+              <div style={{ fontWeight: 'bold', fontSize: '14px' }}>
+                Sistema da Loja
+              </div>
+              <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                Usuário: {usuario} ({perfil})
               </div>
             </div>
-
-            <button
-              onClick={handleLogout}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '4px',
-                border: 'none',
-                backgroundColor: '#dc2626',
-                color: '#ffffff',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              Sair
-            </button>
           </div>
 
-          <nav
+          <button
+            onClick={handleLogout}
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '8px',
-              marginBottom: '4px',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: '#dc2626',
+              color: '#ffffff',
+              fontSize: '12px',
+              cursor: 'pointer',
             }}
           >
-            {itens.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setTelaAtiva(item.id)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: telaAtiva === item.id ? 'bold' : 'normal',
-                  backgroundColor:
-                    telaAtiva === item.id ? '#16a34a' : '#f3f4f6',
-                  color: telaAtiva === item.id ? '#ffffff' : '#111827',
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
+            Sair
+          </button>
         </div>
-      </header>
-    );
-  };
+
+        <nav
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '8px',
+            marginBottom: '4px',
+          }}
+        >
+          {itens.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setTelaAtiva(item.id)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: telaAtiva === item.id ? 'bold' : 'normal',
+                backgroundColor:
+                  telaAtiva === item.id ? '#16a34a' : '#f3f4f6',
+                color: telaAtiva === item.id ? '#ffffff' : '#111827',
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </header>
+  );
+};
 
   // ======================================================================
   // TELA DASHBOARD (bem simples por enquanto)
