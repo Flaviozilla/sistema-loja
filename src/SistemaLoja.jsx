@@ -4342,7 +4342,6 @@ const TelaPagamentoPromissorias = () => {
     </div>
   );
 };
-
   
   // ======================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
