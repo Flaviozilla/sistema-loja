@@ -2887,246 +2887,375 @@ const TelaProdutos = () => {
   );
 };
 
-  // ========================================================================
-  // TELA DE PROMISSÓRIAS  (igual à última versão que você colou)
-  // ========================================================================
-  const TelaPromissorias = () => {
-    const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
+// ========================================================================
+// TELA DE PROMISSÓRIAS
+// ========================================================================
+const TelaPromissorias = () => {
+  const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
 
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
 
-    const listaFiltradaBase = promissorias.map((p) => ({ ...p }));
+  // --- Cálculo de parcelas em atraso a partir da data de início ---
+  const calcularParcelasEmAtraso = (p) => {
+    if (!p.dataInicio) return 0;
+    const inicio = new Date(p.dataInicio);
+    inicio.setHours(0, 0, 0, 0);
 
-    const listaFiltrada = listaFiltradaBase.filter((p) => {
-      if (!mostrarSomenteAtrasadas) return true;
+    // ainda não chegou a primeira parcela
+    if (inicio > hoje) return 0;
 
-      const dataIni = p.dataInicio ? new Date(p.dataInicio) : null;
-      if (!dataIni) return false;
-      dataIni.setHours(0, 0, 0, 0);
+    const anoDiff = hoje.getFullYear() - inicio.getFullYear();
+    const mesDiff = hoje.getMonth() - inicio.getMonth();
+    let parcelasVencidas = anoDiff * 12 + mesDiff + 1; // +1 conta o mês inicial
 
-      const emAtraso = dataIni < hoje && (p.parcelasAtrasadas || 0) > 0;
+    if (parcelasVencidas < 0) parcelasVencidas = 0;
+    if (p.parcelas && parcelasVencidas > p.parcelas) {
+      parcelasVencidas = p.parcelas;
+    }
+    return parcelasVencidas;
+  };
 
-      return emAtraso;
-    });
+  // Aplica regras de atraso / status em memória
+  const promissoriasCalculadas = promissorias.map((p) => {
+    const atrasadas = calcularParcelasEmAtraso(p);
+    const saldo = Number(p.valor || 0);
 
-    const toggleSelecao = async (index) => {
-      const prom = promissorias[index];
-      if (!prom) return;
+    let statusCalc = p.status || 'ABERTO';
+    if (saldo <= 0) {
+      statusCalc = 'QUITADO';
+    } else if (atrasadas > 0) {
+      statusCalc = 'PENDENTE';
+    } else {
+      statusCalc = 'ABERTO';
+    }
 
-      const novoSelecionado = !prom.selecionado;
-
-      setPromissorias((lista) =>
-        lista.map((p, idx) =>
-          idx === index ? { ...p, selecionado: novoSelecionado } : p,
-        ),
-      );
-
-      if (prom.id) {
-        try {
-          const { error } = await supabase
-            .from('promissorias')
-            .update({ selecionado: novoSelecionado })
-            .eq('id', prom.id);
-
-          if (error) {
-            console.error('Erro ao atualizar seleção da promissória:', error);
-          }
-        } catch (e) {
-          console.error('Erro inesperado ao atualizar seleção da promissória:', e);
-        }
-      }
+    return {
+      ...p,
+      parcelasAtrasadas: atrasadas,
+      statusCalc,
     };
+  });
 
-    const enviarEmails = () => {
-      const selecionados = promissorias.filter((p) => p.selecionado);
-      if (selecionados.length === 0) {
-        alert('Nenhuma promissória selecionada.');
-        return;
-      }
-      const emails = selecionados
-        .map((p) => `${p.cliente} <${p.email}>`)
-        .join('\n');
-      alert(
-        `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`,
-      );
-    };
+  // Remove da visualização as já quitadas
+  let listaFiltradaBase = promissoriasCalculadas.filter(
+    (p) => p.statusCalc !== 'QUITADO'
+  );
 
-    const consolidadoPorCliente = Object.values(
-      listaFiltrada.reduce((acc, p) => {
-        if (!acc[p.cliente]) {
-          acc[p.cliente] = {
-            cliente: p.cliente,
-            email: p.email,
-            total: 0,
-            atrasadas: 0,
-          };
-        }
-        acc[p.cliente].total += p.valor || 0;
-        acc[p.cliente].atrasadas += p.parcelasAtrasadas || 0;
-        return acc;
-      }, {}),
+  // Filtro "somente atrasadas"
+  const listaFiltrada = listaFiltradaBase.filter((p) => {
+    if (!mostrarSomenteAtrasadas) return true;
+    return p.parcelasAtrasadas > 0;
+  });
+
+  // Selecionar / desmarcar para e-mail
+  const toggleSelecao = async (index) => {
+    const prom = promissorias[index];
+    if (!prom) return;
+
+    const novoSelecionado = !prom.selecionado;
+
+    setPromissorias((lista) =>
+      lista.map((p, idx) =>
+        idx === index ? { ...p, selecionado: novoSelecionado } : p
+      )
     );
 
-    return (
-      <div className="p-6 space-y-6" style={appStyle}>
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
-              <p className="text-sm text-gray-600">
-                Selecione as vendas para contato e acompanhe quem está com parcelas
-                atrasadas.
-              </p>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={mostrarSomenteAtrasadas}
-                  onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
-                />
-                Mostrar apenas com parcelas em atraso
-              </label>
+    if (prom.id) {
+      try {
+        const { error } = await supabase
+          .from('promissorias')
+          .update({ selecionado: novoSelecionado })
+          .eq('id', prom.id);
+
+        if (error) {
+          console.error('Erro ao atualizar seleção da promissória:', error);
+        }
+      } catch (e) {
+        console.error('Erro inesperado ao atualizar seleção da promissória:', e);
+      }
+    }
+  };
+
+  const enviarEmails = () => {
+    const selecionados = promissoriasCalculadas.filter((p) => p.selecionado);
+    if (selecionados.length === 0) {
+      alert('Nenhuma promissória selecionada.');
+      return;
+    }
+    const emails = selecionados
+      .map((p) => `${p.cliente} <${p.email}>`)
+      .join('\n');
+    alert(
+      `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`
+    );
+  };
+
+  // Consolidação por cliente (usa apenas lista filtrada atual)
+  const consolidadoPorCliente = Object.values(
+    listaFiltrada.reduce((acc, p) => {
+      if (!acc[p.cliente]) {
+        acc[p.cliente] = {
+          cliente: p.cliente,
+          email: p.email,
+          total: 0,
+          atrasadas: 0,
+        };
+      }
+      acc[p.cliente].total += Number(p.valor || 0);
+      acc[p.cliente].atrasadas += Number(p.parcelasAtrasadas || 0);
+      return acc;
+    }, {})
+  );
+
+  // Impressão / PDF (somente o que está filtrado na tela)
+  const imprimirPromissorias = () => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    const linhasHtml = listaFiltrada
+      .map((p) => {
+        return `
+          <tr>
+            <td style="text-align:center;">${p.nrVenda || ''}</td>
+            <td style="text-align:center;">${p.cliente || ''}</td>
+            <td style="text-align:center;">${p.email || ''}</td>
+            <td style="text-align:center;">${formatarReal(p.valor)}</td>
+            <td style="text-align:center;">
+              ${p.dataInicio ? formatarDataBR(p.dataInicio) : ''}
+            </td>
+            <td style="text-align:center;">${p.parcelas || 0}</td>
+            <td style="text-align:center;">${p.parcelasAtrasadas || 0}</td>
+            <td style="text-align:center;">${p.statusCalc}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const hojeStr = formatarDataBR(new Date().toISOString().slice(0, 10));
+
+    win.document.write(`
+      <html>
+        <head>
+          <title>Promissórias</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; }
+            h1 { font-size: 18px; margin-bottom: 4px; text-align:center; }
+            h2 { font-size: 13px; margin-top: 4px; text-align:center; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
+            th, td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: center; }
+            th { background: #f3f4f6; }
+          </style>
+        </head>
+        <body>
+          <div style="text-align:center;">
+            <img src="/logo-wolves.png" alt="Logo" style="width:90px;height:90px;object-fit:contain;border-radius:50%;"/>
+            <h1>Promissórias em Aberto</h1>
+            <h2>Emitido em ${hojeStr}</h2>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Nr Venda</th>
+                <th>Cliente</th>
+                <th>E-mail</th>
+                <th>Saldo Devedor</th>
+                <th>Data inicial de pagamento</th>
+                <th>Parcelas</th>
+                <th>Parcelas em atraso</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                linhasHtml ||
+                '<tr><td colspan="8">Nenhuma promissória para os filtros atuais.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.print();
+  };
+
+  return (
+    <div className="p-6 space-y-6" style={appStyle}>
+      <div className="bg-white rounded-lg shadow p-6">
+        {/* Título + filtros topo */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
+            <p className="text-sm text-gray-600">
+              Selecione as vendas para contato e acompanhe quem está com parcelas atrasadas.
+            </p>
+          </div>
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs md:text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={mostrarSomenteAtrasadas}
+                onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
+              />
+              Mostrar apenas com parcelas em atraso
+            </label>
+            <div className="flex gap-2">
               <button
                 onClick={enviarEmails}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs"
               >
                 <Mail className="w-4 h-4" />
-                Enviar e-mails selecionados
+                e-mails
+              </button>
+              <button
+                onClick={imprimirPromissorias}
+                className="bg-black hover:bg-gray-900 text-white px-3 py-2 rounded-lg text-xs font-bold"
+              >
+                ExportarPDF3
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Tabela de promissórias */}
-          <div className="overflow-x-auto text-sm mb-6">
-            <table className="w-full">
+        {/* Tabela de promissórias */}
+        <div className="overflow-x-auto text-xs mb-6">
+          <table className="w-full text-[11px]">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="px-2 py-2 text-center">
+                  <input type="checkbox" disabled />
+                </th>
+                <th className="px-2 py-2 text-center">Nr Venda</th>
+                <th className="px-2 py-2 text-center">Cliente</th>
+                <th className="px-2 py-2 text-center">E-mail</th>
+                <th className="px-2 py-2 text-center">Saldo Devedor</th>
+                <th className="px-2 py-2 text-center">Data inicial de pagamento</th>
+                <th className="px-2 py-2 text-center">Parcelas</th>
+                <th className="px-2 py-2 text-center">Parcelas em atraso</th>
+                <th className="px-2 py-2 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listaFiltrada.map((prom, idx) => {
+                const indexOriginal = promissorias.findIndex(
+                  (p) =>
+                    p.nrVenda === prom.nrVenda && p.cliente === prom.cliente
+                );
+
+                // COR DA LINHA QUANDO PENDENTE
+                const linhaPendente =
+                  prom.statusCalc === 'PENDENTE' ? 'bg-yellow-100' : '';
+
+                const atrasoClass =
+                  (prom.parcelasAtrasadas || 0) > 0
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-green-100 text-green-800';
+
+                const statusClass =
+                  prom.statusCalc === 'PENDENTE'
+                    ? 'bg-yellow-200 text-yellow-900'
+                    : 'bg-blue-100 text-blue-800';
+
+                return (
+                  <tr
+                    key={idx}
+                    className={`border-b hover:bg-gray-50 ${linhaPendente}`}
+                  >
+                    <td className="px-2 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        checked={prom.selecionado || false}
+                        onChange={() => toggleSelecao(indexOriginal)}
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-center font-semibold">
+                      {prom.nrVenda}
+                    </td>
+                    <td className="px-2 py-1 text-center">{prom.cliente}</td>
+                    <td className="px-2 py-1 text-center text-[10px] text-gray-600">
+                      {prom.email}
+                    </td>
+                    <td className="px-2 py-1 text-center font-semibold">
+                      {formatarReal(prom.valor)}
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
+                    </td>
+                    <td className="px-2 py-1 text-center">{prom.parcelas}</td>
+                    <td className="px-2 py-1 text-center">
+                      <span className={`px-2 py-1 rounded text-[10px] ${atrasoClass}`}>
+                        {prom.parcelasAtrasadas}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <span className={`px-2 py-1 rounded text-[10px] ${statusClass}`}>
+                        {prom.statusCalc}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {listaFiltrada.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-3 py-4 text-center text-[11px] text-gray-500"
+                  >
+                    Nenhuma promissória encontrada com os filtros atuais.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Consolidação por cliente */}
+        <div>
+          <h3 className="text-lg font-semibold mb-2">
+            Consolidação por Cliente (somente filtrados acima)
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] md:text-xs border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-2 text-center">
-                    <input type="checkbox" disabled />
-                  </th>
-                  <th className="px-3 py-2 text-center">Nr Venda</th>
                   <th className="px-3 py-2 text-center">Cliente</th>
                   <th className="px-3 py-2 text-center">E-mail</th>
-                  <th className="px-3 py-2 text-center">Saldo Devedor</th>
-                  <th className="px-3 py-2 text-center">Data inicial de Pagamento</th>
-                  <th className="px-3 py-2 text-center">Parcelas</th>
-                  <th className="px-3 py-2 text-center">Parcelas em atraso</th>
-                  <th className="px-3 py-2 text-center">Status</th>
+                  <th className="px-3 py-2 text-center">Total em aberto</th>
+                  <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
                 </tr>
               </thead>
               <tbody>
-                {listaFiltrada.map((prom, idx) => {
-                  const indexOriginal = promissorias.findIndex(
-                    (p) => p.nrVenda === prom.nrVenda && p.cliente === prom.cliente,
-                  );
-                  return (
-                    <tr key={idx} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={prom.selecionado || false}
-                          onChange={() => toggleSelecao(indexOriginal)}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-center font-semibold">
-                        {prom.nrVenda}
-                      </td>
-                      <td className="px-3 py-2 text-center">{prom.cliente}</td>
-                      <td className="px-3 py-2 text-center text-xs text-gray-600">
-                        {prom.email}
-                      </td>
-                      <td className="px-3 py-2 text-center font-semibold">
-                        {formatarReal(prom.valor)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
-                      </td>
-                      <td className="px-3 py-2 text-center">{prom.parcelas}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            prom.parcelasAtrasadas > 0
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}
-                        >
-                          {prom.parcelasAtrasadas}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            prom.status === 'ABERTO'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-blue-100 text-blue-800'
-                          }`}
-                        >
-                          {prom.status}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {listaFiltrada.length === 0 && (
+                {consolidadoPorCliente.map((c, idx) => (
+                  <tr key={idx} className="border-t">
+                    <td className="px-3 py-1 text-center">{c.cliente}</td>
+                    <td className="px-3 py-1 text-center text-[10px]">
+                      {c.email}
+                    </td>
+                    <td className="px-3 py-1 text-center font-semibold">
+                      {formatarReal(c.total)}
+                    </td>
+                    <td className="px-3 py-1 text-center">{c.atrasadas}</td>
+                  </tr>
+                ))}
+                {consolidadoPorCliente.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
-                      className="px-3 py-4 text-center text-xs text-gray-500"
+                      colSpan={4}
+                      className="px-3 py-3 text-center text-[11px] text-gray-500"
                     >
-                      Nenhuma promissória encontrada com os filtros atuais.
+                      Nenhuma promissória para consolidar com os filtros atuais.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-
-          {/* Consolidação por cliente */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">
-              Consolidação por Cliente (somente filtrados acima)
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs md:text-sm border border-gray-300">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="px-3 py-2 text-center">Cliente</th>
-                    <th className="px-3 py-2 text-center">E-mail</th>
-                    <th className="px-3 py-2 text-center">Total em aberto</th>
-                    <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidadoPorCliente.map((c, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="px-3 py-2 text-center">{c.cliente}</td>
-                      <td className="px-3 py-2 text-center">{c.email}</td>
-                      <td className="px-3 py-2 text-center font-semibold">
-                        {formatarReal(c.total)}
-                      </td>
-                      <td className="px-3 py-2 text-center">{c.atrasadas}</td>
-                    </tr>
-                  ))}
-                  {consolidadoPorCliente.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-3 text-center text-xs text-gray-500"
-                      >
-                        Nenhuma promissória para consolidar com os filtros atuais.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   // ======================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
