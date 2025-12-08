@@ -1424,6 +1424,9 @@ const registrarVenda = async () => {
   );
 };
    
+// Coloque o caminho/URL correto da sua logo aqui:
+const LOGO_EMPRESA_URL = '/logo-loja.png';
+
 // ======================================================================
 // TELA HISTÓRICO (com Nr Venda, Forma e Valor Final)
 // ======================================================================
@@ -1446,11 +1449,368 @@ const TelaHistorico = () => {
 
   const pegarForma = (l) => l.forma || '';
 
+  // -----------------------------
+  // HISTÓRICO PERSISTENTE
+  // -----------------------------
+  const [historico, setHistorico] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('historicoLancamentos');
+      if (salvo) {
+        return JSON.parse(salvo);
+      }
+    } catch (e) {
+      console.error('Erro ao ler histórico do localStorage:', e);
+    }
+    // Se não houver nada salvo ainda, usa os lançamentos atuais (se existirem)
+    return Array.isArray(lancamentos) ? lancamentos : [];
+  });
+
+  // Sempre que o histórico mudar, salva no localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('historicoLancamentos', JSON.stringify(historico));
+    } catch (e) {
+      console.error('Erro ao salvar histórico no localStorage:', e);
+    }
+  }, [historico]);
+
+  // Se "lancamentos" externo tiver dados (por ex. carregados do Supabase),
+  // atualiza o histórico com eles. Evita sobrescrever com array vazio.
+  useEffect(() => {
+    if (Array.isArray(lancamentos) && lancamentos.length > 0) {
+      setHistorico(lancamentos);
+    }
+  }, [lancamentos]);
+
+  // -----------------------------
+  // FILTROS
+  // -----------------------------
+  const [filtroDataInicio, setFiltroDataInicio] = useState('');
+  const [filtroDataFim, setFiltroDataFim] = useState('');
+  const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
+
+  const normalizarData = (valor) => {
+    if (!valor) return '';
+    const pad2 = (n) => (n < 10 ? '0' : '') + n;
+
+    // Se for Date
+    if (valor instanceof Date) {
+      const a = valor.getFullYear();
+      const m = pad2(valor.getMonth() + 1);
+      const d = pad2(valor.getDate());
+      return `${a}-${m}-${d}`;
+    }
+
+    // Se for string
+    if (typeof valor === 'string') {
+      const s = valor.trim();
+
+      // Já em formato AAAA-MM-DD ou AAAA-MM-DDTHH:mm...
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        return s.substring(0, 10);
+      }
+
+      // Formato brasileiro DD/MM/AAAA
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+        const [d, m, a] = s.split('/');
+        return `${a}-${m}-${d}`;
+      }
+
+      // Tenta converter via Date
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) {
+        const a = dt.getFullYear();
+        const m = pad2(dt.getMonth() + 1);
+        const d = pad2(dt.getDate());
+        return `${a}-${m}-${d}`;
+      }
+
+      return '';
+    }
+
+    // Último recurso, tenta converter
+    const dt = new Date(valor);
+    if (!isNaN(dt.getTime())) {
+      const a = dt.getFullYear();
+      const m = pad2(dt.getMonth() + 1);
+      const d = pad2(dt.getDate());
+      return `${a}-${m}-${d}`;
+    }
+
+    return '';
+  };
+
+  const historicoFiltrado = (historico || []).filter((l) => {
+    const dataNormalizada = normalizarData(l.data);
+
+    if (filtroDataInicio && dataNormalizada && dataNormalizada < filtroDataInicio) {
+      return false;
+    }
+    if (filtroDataFim && dataNormalizada && dataNormalizada > filtroDataFim) {
+      return false;
+    }
+
+    if (filtroFormaPagamento && filtroFormaPagamento !== 'TODOS') {
+      const forma = (pegarForma(l) || '').toUpperCase();
+      if (forma !== filtroFormaPagamento.toUpperCase()) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // -----------------------------
+  // DOWNLOAD CSV (Excel)
+  // -----------------------------
+  const baixarHistoricoCSV = () => {
+    if (!historicoFiltrado.length) {
+      alert('Não há dados no histórico com os filtros atuais.');
+      return;
+    }
+
+    const colunas = [
+      'Data',
+      'Tipo',
+      'Nr Venda',
+      'Forma Pgto',
+      'Produto',
+      'Qtde',
+      'Valor Final da Venda',
+    ];
+
+    const linhas = historicoFiltrado.map((l) => [
+      normalizarData(l.data),
+      l.tipo || '',
+      pegarNrVenda(l),
+      pegarForma(l),
+      l.produto || '',
+      l.qtde != null ? l.qtde : '',
+      pegarValorFinal(l).toString().replace('.', ','), // separador decimal BR
+    ]);
+
+    const tudo = [colunas, ...linhas]
+      .map((linha) =>
+        linha
+          .map((campo) => {
+            const s = String(campo ?? '');
+            if (s.includes(';') || s.includes('"') || s.includes('\n')) {
+              return `"${s.replace(/"/g, '""')}"`;
+            }
+            return s;
+          })
+          .join(';')
+      )
+      .join('\n');
+
+    const blob = new Blob([tudo], { type: 'text/csv;charset=utf-8;' });
+
+    const hoje = new Date();
+    const pad2 = (n) => (n < 10 ? '0' : '') + n;
+    const nomeArquivo = `historico_lancamentos_${hoje.getFullYear()}-${pad2(
+      hoje.getMonth() + 1
+    )}-${pad2(hoje.getDate())}.csv`;
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = nomeArquivo;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  // -----------------------------
+  // LIMPAR HISTÓRICO
+  // -----------------------------
+  const limparHistorico = () => {
+    const ok = window.confirm(
+      'Tem certeza que deseja apagar todo o histórico salvo? Essa ação não pode ser desfeita.'
+    );
+    if (!ok) return;
+
+    setHistorico([]);
+    try {
+      localStorage.removeItem('historicoLancamentos');
+    } catch (e) {
+      console.error('Erro ao limpar histórico do localStorage:', e);
+    }
+  };
+
+  // -----------------------------
+  // EXPORTAR PDF 1 (impressão)
+  // -----------------------------
+  const ExportarPDF1 = () => {
+    if (!historicoFiltrado.length) {
+      alert('Não há dados para exportar com os filtros atuais.');
+      return;
+    }
+
+    const novaJanela = window.open('', '_blank');
+
+    const titulo = 'Histórico de Lançamentos';
+
+    const htmlCabecalho = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${titulo}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; }
+            h1 { text-align: center; margin: 8px 0 16px 0; }
+            .logo-container { text-align: center; margin-bottom: 8px; }
+            .logo-container img { max-height: 80px; }
+            .filtros-info { font-size: 12px; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #000; padding: 4px; text-align: center; }
+            th { background-color: #eee; }
+          </style>
+        </head>
+        <body>
+          <div class="logo-container">
+            <img src="${LOGO_EMPRESA_URL}" alt="Logo da Empresa" />
+          </div>
+          <h1>${titulo}</h1>
+          <div class="filtros-info">
+            <div><strong>Período:</strong> ${filtroDataInicio || 'Início'} até ${
+      filtroDataFim || 'Fim'
+    }</div>
+            <div><strong>Forma de Pagamento:</strong> ${
+              filtroFormaPagamento || 'Todos'
+            }</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Tipo</th>
+                <th>Nr Venda</th>
+                <th>Forma Pgto</th>
+                <th>Produto</th>
+                <th>Qtde</th>
+                <th>Valor Final da Venda</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    const linhasHtml = historicoFiltrado
+      .map(
+        (l) => `
+        <tr>
+          <td>${formatarDataBR(l.data)}</td>
+          <td>${l.tipo || ''}</td>
+          <td>${pegarNrVenda(l)}</td>
+          <td>${pegarForma(l)}</td>
+          <td>${l.produto || ''}</td>
+          <td>${l.qtde != null ? l.qtde : ''}</td>
+          <td>${formatarReal(pegarValorFinal(l))}</td>
+        </tr>
+      `
+      )
+      .join('');
+
+    const htmlRodape = `
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    novaJanela.document.write(htmlCabecalho + linhasHtml + htmlRodape);
+    novaJanela.document.close();
+    novaJanela.focus();
+    novaJanela.print();
+    // novaJanela.close(); // descomente se quiser fechar automaticamente
+  };
+
+  // -----------------------------
+  // RENDER
+  // -----------------------------
   return (
     <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
         Histórico de Lançamentos
       </h2>
+
+      {/* Filtros */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          marginBottom: '8px',
+          fontSize: '11px',
+        }}
+      >
+        <div>
+          <label>
+            Data início:{' '}
+            <input
+              type="date"
+              value={filtroDataInicio}
+              onChange={(e) => setFiltroDataInicio(e.target.value)}
+              style={{ fontSize: '11px' }}
+            />
+          </label>
+        </div>
+        <div>
+          <label>
+            Data fim:{' '}
+            <input
+              type="date"
+              value={filtroDataFim}
+              onChange={(e) => setFiltroDataFim(e.target.value)}
+              style={{ fontSize: '11px' }}
+            />
+          </label>
+        </div>
+        <div>
+          <label>
+            Forma de Pagamento:{' '}
+            <select
+              value={filtroFormaPagamento}
+              onChange={(e) => setFiltroFormaPagamento(e.target.value)}
+              style={{ fontSize: '11px' }}
+            >
+              <option value="">(sem filtro)</option>
+              <option value="TODOS">Todos</option>
+              <option value="DINHEIRO">Dinheiro</option>
+              <option value="PIX">PIX</option>
+              <option value="CARTAO">Cartão</option>
+              <option value="CREDITO">Crédito</option>
+              <option value="DEBITO">Débito</option>
+              {/* acrescente as demais formas que você utiliza */}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {/* Botões de ação */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          marginBottom: '8px',
+          fontSize: '11px',
+        }}
+      >
+        <button onClick={ExportarPDF1} style={{ fontSize: '11px', padding: '4px 8px' }}>
+          ExportarPDF1
+        </button>
+        <button
+          onClick={baixarHistoricoCSV}
+          style={{ fontSize: '11px', padding: '4px 8px' }}
+        >
+          Baixar Histórico (CSV/Excel)
+        </button>
+        <button
+          onClick={limparHistorico}
+          style={{ fontSize: '11px', padding: '4px 8px' }}
+        >
+          Limpar Histórico Salvo
+        </button>
+      </div>
+
       <div
         style={{
           background: '#ffffff',
@@ -1493,7 +1853,7 @@ const TelaHistorico = () => {
               </tr>
             </thead>
             <tbody>
-              {lancamentos.map((l, idx) => (
+              {historicoFiltrado.map((l, idx) => (
                 <tr key={idx}>
                   <td
                     style={{
@@ -1553,10 +1913,10 @@ const TelaHistorico = () => {
                   </td>
                 </tr>
               ))}
-              {lancamentos.length === 0 && (
+              {historicoFiltrado.length === 0 && (
                 <tr>
                   <td colSpan={7} style={{ padding: '8px', fontSize: '11px' }}>
-                    Nenhum lançamento registrado.
+                    Nenhum lançamento registrado (com os filtros atuais).
                   </td>
                 </tr>
               )}
@@ -1567,7 +1927,6 @@ const TelaHistorico = () => {
     </div>
   );
 };
-
   // ======================================================================
   // (continua na PARTE 3/3)
 // ======== FIM PARTE 2/3 ========
@@ -2886,15 +3245,102 @@ const TelaProdutos = () => {
     </div>
   );
 };
-
 // ========================================================================
 // TELA DE PROMISSÓRIAS
 // ========================================================================
 const TelaPromissorias = () => {
   const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
+  const [enviandoEmails, setEnviandoEmails] = useState(false); // controle do botão "e-mails"
 
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
+
+  // ---------- TEXTO DO E-MAIL / WHATSAPP ----------
+  const montarTextoCobranca = (p) => {
+    const nome = p.cliente || 'cliente';
+
+    const dt = p.dataInicio ? new Date(p.dataInicio) : new Date();
+    const dia = String(dt.getDate()).padStart(2, '0');
+    const mes = String(dt.getMonth() + 1).padStart(2, '0');
+    const ano = String(dt.getFullYear()).toString().slice(-2);
+    const dataFormatada = `${dia}/${mes}/${ano}`;
+
+    return (
+`Bom dia Sr(a) ${nome},
+
+Somos da Equipe Financeira da Wolf Artigos Militares! O motivo do contato é
+para lembrá-lo de entrar em contato com um de nossos funcionários e
+verificar uma possível pendência com a nossa Loja, referente a compra
+realizada em ${dataFormatada}.
+
+Aproveite também para verificar nossos produtos!!
+
+Caso já tenha realizado o pagamento da compra mencionada, favor
+desconsiderar esta mensagem!
+
+Atenciosamente,
+Equipe Financeira
+Wolf Artigos Militares`
+    );
+  };
+
+  const abrirWhatsapp = (p) => {
+    const telefone = p.telefone || p.whatsapp || ''; // ajuste para o nome de campo que você tiver
+    if (!telefone) return;
+
+    const texto = montarTextoCobranca(p);
+    const apenasNumeros = String(telefone).replace(/\D/g, '');
+    if (!apenasNumeros) return;
+
+    // DDI 55 (Brasil) – ajuste se necessário
+    const url = `https://wa.me/55${apenasNumeros}?text=${encodeURIComponent(
+      texto
+    )}`;
+    window.open(url, '_blank');
+  };
+
+  const enviarEmailViaApi = async (p) => {
+    const corpo = montarTextoCobranca(p);
+    const assunto = 'Lembrete de pendência - Wolf Artigos Militares';
+
+    const resp = await fetch('/api/enviar-cobranca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emailCliente: p.email,
+        assunto,
+        corpo,
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error('Falha ao chamar API de e-mail');
+    }
+  };
+
+  const marcarEmailComoEnviado = async (p) => {
+    // atualiza no Supabase (campo email_enviado) e no estado local
+    try {
+      if (p.id) {
+        const { error } = await supabase
+          .from('promissorias')
+          .update({ email_enviado: true })
+          .eq('id', p.id);
+
+        if (error) {
+          console.error('Erro ao marcar email_enviado no banco:', error);
+        }
+      }
+    } catch (e) {
+      console.error('Erro inesperado ao marcar email_enviado:', e);
+    }
+
+    setPromissorias((lista) =>
+      lista.map((item) =>
+        item.id === p.id ? { ...item, email_enviado: true } : item
+      )
+    );
+  };
 
   // --- Cálculo de parcelas em atraso a partir da data de início ---
   const calcularParcelasEmAtraso = (p) => {
@@ -2948,7 +3394,7 @@ const TelaPromissorias = () => {
     return p.parcelasAtrasadas > 0;
   });
 
-  // Selecionar / desmarcar para e-mail
+  // Selecionar / desmarcar (continua igual, só marca no banco/estado)
   const toggleSelecao = async (index) => {
     const prom = promissorias[index];
     if (!prom) return;
@@ -2977,18 +3423,45 @@ const TelaPromissorias = () => {
     }
   };
 
-  const enviarEmails = () => {
+  // ENVIO REAL DE E-MAIL + WHATSAPP PARA OS SELECIONADOS
+  const enviarEmails = async () => {
     const selecionados = promissoriasCalculadas.filter((p) => p.selecionado);
     if (selecionados.length === 0) {
       alert('Nenhuma promissória selecionada.');
       return;
     }
-    const emails = selecionados
-      .map((p) => `${p.cliente} <${p.email}>`)
-      .join('\n');
-    alert(
-      `Simulação de envio de e-mails para:\n\n${emails}\n\n(na implementação real, aqui integraria com um serviço de e-mail)`
-    );
+
+    setEnviandoEmails(true);
+
+    try {
+      for (const p of selecionados) {
+        if (!p.email) {
+          console.warn(`Promissória ${p.nrVenda} sem e-mail cadastrado.`);
+          continue;
+        }
+
+        // evita reenviar se já tiver ícone de carta
+        if (p.email_enviado) continue;
+
+        // 1) enviar e-mail via API
+        await enviarEmailViaApi(p);
+
+        // 2) marcar como enviado (ícone)
+        await marcarEmailComoEnviado(p);
+
+        // 3) abrir WhatsApp (se tiver telefone)
+        if (p.telefone || p.whatsapp) {
+          abrirWhatsapp(p);
+        }
+      }
+
+      alert('Processo de envio concluído (verifique e-mails/WhatsApp).');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao enviar e-mails. Verifique o console para detalhes.');
+    } finally {
+      setEnviandoEmails(false);
+    }
   };
 
   // Consolidação por cliente (usa apenas lista filtrada atual)
@@ -3103,10 +3576,11 @@ const TelaPromissorias = () => {
             <div className="flex gap-2">
               <button
                 onClick={enviarEmails}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs"
+                disabled={enviandoEmails}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-xs"
               >
                 <Mail className="w-4 h-4" />
-                e-mails
+                {enviandoEmails ? 'Enviando...' : 'e-mails'}
               </button>
               <button
                 onClick={imprimirPromissorias}
@@ -3134,6 +3608,7 @@ const TelaPromissorias = () => {
                 <th className="px-2 py-2 text-center">Parcelas</th>
                 <th className="px-2 py-2 text-center">Parcelas em atraso</th>
                 <th className="px-2 py-2 text-center">Status</th>
+                <th className="px-2 py-2 text-center">Envio</th>{/* ícone carta */}
               </tr>
             </thead>
             <tbody>
@@ -3193,13 +3668,20 @@ const TelaPromissorias = () => {
                         {prom.statusCalc}
                       </span>
                     </td>
+                    <td className="px-2 py-1 text-center">
+                      {prom.email_enviado ? (
+                        <Mail className="inline-block w-4 h-4 text-blue-600" />
+                      ) : (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {listaFiltrada.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-3 py-4 text-center text-[11px] text-gray-500"
                   >
                     Nenhuma promissória encontrada com os filtros atuais.
@@ -3252,6 +3734,441 @@ const TelaPromissorias = () => {
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+// ========================================================================
+// TELA PAGAMENTO (PROMISSÓRIAS)
+// ========================================================================
+const TelaPagamentoPromissorias = () => {
+  const [listaPromissorias, setListaPromissorias] = useState([]);
+  const [listaPagamentos, setListaPagamentos] = useState([]);
+
+  const hoje = new Date();
+  const hojeISO = hoje.toISOString().slice(0, 10); // yyyy-mm-dd
+
+  const [form, setForm] = useState({
+    data: hojeISO,
+    nrVenda: '',
+    forma: '',
+    valorPago: '',
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState('');
+  const [msg, setMsg] = useState('');
+
+  // Carrega promissórias em aberto (para montar a lista de Nr Venda)
+  const carregarPromissorias = async () => {
+    setErro('');
+    const { data, error } = await supabase
+      .from('promissorias')      // nome da tabela que você já usa
+      .select('*')
+      .order('nr_venda', { ascending: true });
+
+    if (error) {
+      console.error('Erro ao carregar promissórias:', error);
+      setErro('Erro ao carregar promissórias.');
+      return;
+    }
+    setListaPromissorias(data || []);
+  };
+
+  // Carrega pagamentos já efetuados (para listar na tabela abaixo, se quiser)
+  const carregarPagamentos = async () => {
+    setErro('');
+    const { data, error } = await supabase
+      .from('pagamentos_promissorias')
+      .select('*')
+      .order('data_pagamento', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao carregar pagamentos:', error);
+      setErro('Erro ao carregar pagamentos.');
+      return;
+    }
+    setListaPagamentos(data || []);
+  };
+
+  useEffect(() => {
+    carregarPromissorias();
+    carregarPagamentos();
+  }, []);
+
+  // Promissória selecionada (com base no Nr Venda)
+  const promissoriaSelecionada = useMemo(() => {
+    if (!form.nrVenda) return null;
+    return listaPromissorias.find(p => {
+      // ajuste o nome do campo conforme sua tabela: nr_venda ou nrVenda
+      return (p.nr_venda || p.nrVenda) === form.nrVenda;
+    }) || null;
+  }, [form.nrVenda, listaPromissorias]);
+
+  // Derivados: cliente, parcelas, saldoDevedor
+  const cliente = promissoriaSelecionada
+    ? (promissoriaSelecionada.cliente || '')
+    : '';
+
+  // Se você tiver um campo pronto como parcelasAtrasadas, use direto:
+  const parcelasAtrasadas = promissoriaSelecionada
+    ? (promissoriaSelecionada.parcelas_atrasadas ||
+       promissoriaSelecionada.parcelasAtrasadas ||
+       0)
+    : 0;
+
+  const saldoDevedor = promissoriaSelecionada
+    ? Number(
+        promissoriaSelecionada.saldo_devedor ||
+        promissoriaSelecionada.saldoDevedor ||
+        promissoriaSelecionada.total_em_aberto ||
+        promissoriaSelecionada.totalEmAberto ||
+        0
+      )
+    : 0;
+
+  const valorPagoNum = Number(form.valorPago || 0);
+  const saldoFinal = Math.max(saldoDevedor - valorPagoNum, 0);
+
+  const formasPagamento = [
+    'Dinheiro',
+    'Pix',
+    'Cartão Crédito',
+    'Cartão Débito',
+    'Boleto',
+    // NÃO incluir 'Promissória' aqui
+  ];
+
+  const handleChange = (campo, valor) => {
+    setForm(prev => ({ ...prev, [campo]: valor }));
+    setMsg('');
+    setErro('');
+  };
+
+  const salvarPagamento = async () => {
+    setErro('');
+    setMsg('');
+
+    if (!form.data) {
+      setErro('Informe a data do pagamento.');
+      return;
+    }
+    if (!form.nrVenda) {
+      setErro('Selecione o Nr Venda.');
+      return;
+    }
+    if (!form.forma) {
+      setErro('Selecione a forma de pagamento.');
+      return;
+    }
+    if (!valorPagoNum || valorPagoNum <= 0) {
+      setErro('Informe um valor pago maior que zero.');
+      return;
+    }
+    if (!promissoriaSelecionada) {
+      setErro('Não foi possível localizar a promissória para este Nr Venda.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // 1) REGISTRA O PAGAMENTO NA TABELA pagamentos_promissorias
+      const insertData = {
+        data_pagamento: form.data,
+        nr_venda: form.nrVenda,
+        forma_pagamento: form.forma,
+        parcelas_atrasadas: parcelasAtrasadas,
+        cliente: cliente,
+        saldo_devedor: saldoDevedor,
+        valor_pago: valorPagoNum,
+        saldo_devedor_final: saldoFinal,
+      };
+
+      const { error: errInsert } = await supabase
+        .from('pagamentos_promissorias')
+        .insert(insertData);
+
+      if (errInsert) {
+        console.error('Erro ao salvar pagamento:', errInsert);
+        setErro('Erro ao salvar o pagamento.');
+        setLoading(false);
+        return;
+      }
+
+      // 2) ATUALIZA HISTÓRICO: soma Valor Pago ao Valor Final
+      // Ajuste nomes de tabela/campos conforme seu banco:
+      const { data: histRow, error: errHist } = await supabase
+        .from('historico')
+        .select('*')
+        .eq('nr_venda', form.nrVenda)
+        .maybeSingle();
+
+      if (errHist) {
+        console.error('Erro ao buscar histórico:', errHist);
+        // não interrompe o fluxo, apenas registra o log
+      } else if (histRow) {
+        const valorAtual =
+          Number(histRow.valor_final ??
+                 histRow.valorFinal ??
+                 histRow.valorLiq ??
+                 histRow.valor_liq ??
+                 0);
+
+        const novoValorFinal = valorAtual + valorPagoNum;
+
+        const { error: errUpdHist } = await supabase
+          .from('historico')
+          .update({
+            valor_final: novoValorFinal,
+            // se você usa outro nome, mantenha ele também:
+            valorFinal: novoValorFinal,
+          })
+          .eq('id', histRow.id);
+
+        if (errUpdHist) {
+          console.error('Erro ao atualizar histórico:', errUpdHist);
+          // segue mesmo assim, pois o pagamento já foi registrado
+        }
+      }
+
+      // 3) ATUALIZA PROMISSÓRIAS: abate no saldo e no total em aberto
+      const { error: errUpdProm } = await supabase
+        .from('promissorias')
+        .update({
+          saldo_devedor: saldoFinal,
+          saldoDevedor: saldoFinal,
+          total_em_aberto: saldoFinal,
+          totalEmAberto: saldoFinal,
+        })
+        .eq('id', promissoriaSelecionada.id);
+
+      if (errUpdProm) {
+        console.error('Erro ao atualizar promissória:', errUpdProm);
+      }
+
+      // 4) SE SALDO FINAL = 0, EXCLUI A LINHA EM PROMISSÓRIAS
+      if (saldoFinal <= 0.000001) {
+        const { error: errDel } = await supabase
+          .from('promissorias')
+          .delete()
+          .eq('id', promissoriaSelecionada.id);
+
+        if (errDel) {
+          console.error('Erro ao excluir promissória zerada:', errDel);
+        }
+      }
+
+      // Recarrega listas e limpa o formulário
+      await carregarPromissorias();
+      await carregarPagamentos();
+
+      setForm(prev => ({
+        data: hojeISO,
+        nrVenda: '',
+        forma: '',
+        valorPago: '',
+      }));
+
+      setMsg('Pagamento registrado com sucesso.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
+        Pagamento (Promissórias)
+      </h2>
+
+      {erro && (
+        <div style={{ color: 'red', marginBottom: '8px' }}>{erro}</div>
+      )}
+      {msg && (
+        <div style={{ color: 'green', marginBottom: '8px' }}>{msg}</div>
+      )}
+
+      {/* FORMULÁRIO DE PAGAMENTO */}
+      <div
+        style={{
+          border: '1px solid #ccc',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ flex: '0 0 140px' }}>
+            <label>Data</label>
+            <input
+              type="date"
+              value={form.data}
+              onChange={e => handleChange('data', e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 180px' }}>
+            <label>Nr Venda</label>
+            <select
+              value={form.nrVenda}
+              onChange={e => handleChange('nrVenda', e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">Selecione...</option>
+              {listaPromissorias.map(p => {
+                const nr = p.nr_venda || p.nrVenda || '';
+                const cli = p.cliente || '';
+                return (
+                  <option key={p.id} value={nr}>
+                    {nr} - {cli}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <div style={{ flex: '0 0 180px' }}>
+            <label>Forma de Pagamento</label>
+            <select
+              value={form.forma}
+              onChange={e => handleChange('forma', e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">Selecione...</option>
+              {formasPagamento.map(f => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ flex: '0 0 140px' }}>
+            <label>Valor Pago</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.valorPago}
+              onChange={e => handleChange('valorPago', e.target.value)}
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+        </div>
+
+        {/* CAMPOS AUTOMÁTICOS */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ flex: '0 0 250px' }}>
+            <label>Cliente</label>
+            <input
+              type="text"
+              value={cliente}
+              readOnly
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 120px' }}>
+            <label>Parcelas em atraso</label>
+            <input
+              type="number"
+              value={parcelasAtrasadas}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 140px' }}>
+            <label>Saldo Devedor</label>
+            <input
+              type="text"
+              value={saldoDevedor.toFixed(2)}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+
+          <div style={{ flex: '0 0 160px' }}>
+            <label>Saldo Devedor Final</label>
+            <input
+              type="text"
+              value={saldoFinal.toFixed(2)}
+              readOnly
+              style={{ width: '100%', textAlign: 'right' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginTop: '12px' }}>
+          <button
+            onClick={salvarPagamento}
+            disabled={loading}
+            style={{
+              padding: '8px 16px',
+              cursor: loading ? 'wait' : 'pointer',
+            }}
+          >
+            {loading ? 'Salvando...' : 'Registrar Pagamento'}
+          </button>
+        </div>
+      </div>
+
+      {/* TABELA DE PAGAMENTOS JÁ EFETUADOS (OPCIONAL) */}
+      <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px' }}>
+        Pagamentos registrados
+      </h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '14px',
+          }}
+        >
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Nr Venda</th>
+              <th>Forma</th>
+              <th>Cliente</th>
+              <th>Parcelas</th>
+              <th>Saldo Anterior</th>
+              <th>Valor Pago</th>
+              <th>Saldo Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            {listaPagamentos.map(p => (
+              <tr key={p.id}>
+                <td>{p.data_pagamento}</td>
+                <td>{p.nr_venda}</td>
+                <td>{p.forma_pagamento}</td>
+                <td>{p.cliente}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {p.parcelas_atrasadas}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {Number(p.saldo_devedor).toFixed(2)}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {Number(p.valor_pago).toFixed(2)}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {Number(p.saldo_devedor_final).toFixed(2)}
+                </td>
+              </tr>
+            ))}
+            {listaPagamentos.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '8px' }}>
+                  Nenhum pagamento registrado ainda.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
