@@ -3974,7 +3974,7 @@ const TelaVendedor = () => {
         <div class="rodape">
           <div>Wolves Artigos Militares</div>
           <div>Av. do Exército, S/Nº - Santo Antônio II, Montes Claros</div>
-          <div>CNPJ 00.000.000/0001-00</div>
+          <div>CNPJ 29.816.070/0001-02</div>
           <div>Telefone:(38) 99937-5309</div>
         </div>
       </body>
