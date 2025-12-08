@@ -730,29 +730,29 @@ const SistemaLoja = () => {
     return inicio.toISOString().split('T')[0]; // "yyyy-mm-dd"
   }
 
-   // ========================================================================
+// ========================================================================
 // TELA VENDEDOR (LANÇAMENTOS DE VENDAS)
 // ========================================================================
 const TelaVendedor = () => {
   const [novaVenda, setNovaVenda] = useState({
-    data: new Date().toISOString().split('T')[0],
-    cliente: '',
-    email: '',
-    telefone: '',
-    produto: '',
-    codProduto: '',
-    fornecedor: '',
+    data: new Date().toISOString().split("T")[0],
+    cliente: "",
+    email: "",
+    telefone: "",
+    produto: "",
+    codProduto: "",
+    fornecedor: "",
     qtde: 1,
     valorBruto: 0,
     desconto: 0,
     juros: 0,
     valorLiq: 0,
-    forma: 'PIX',
-    nrVenda: '',
-    local: 'LOJA',
+    forma: "PIX",
+    nrVenda: "",
+    local: "LOJA",
     parcelas: 1,
-    inicioPagamento: '',
-    fotoUrl: '',
+    inicioPagamento: "",
+    fotoUrl: "",
   });
 
   // lista de produtos com base nos movimentos de estoque
@@ -765,8 +765,8 @@ const TelaVendedor = () => {
           codProduto: String(e.cod_produto),
           produto: e.produto,
         },
-      ]),
-    ).values(),
+      ])
+    ).values()
   );
 
   // Valor unitário padrão do produto:
@@ -784,9 +784,9 @@ const TelaVendedor = () => {
     const ultCompra = [...lancamentos]
       .filter(
         (l) =>
-          l.tipo === 'COMPRA' &&
+          l.tipo === "COMPRA" &&
           String(l.codProduto) === codStr &&
-          Number(l.qtde || 0) > 0,
+          Number(l.qtde || 0) > 0
       )
       .sort((a, b) => new Date(b.data) - new Date(a.data))[0];
 
@@ -806,7 +806,7 @@ const TelaVendedor = () => {
         estoque.find(
           (e) =>
             String(e.cod_produto) === codStr &&
-            (e.local || '').toUpperCase() === 'LOJA',
+            (e.local || "").toUpperCase() === "LOJA"
         ) ||
         estoque.find((e) => String(e.cod_produto) === codStr);
     }
@@ -816,7 +816,7 @@ const TelaVendedor = () => {
         estoque.find(
           (e) =>
             e.produto === nome &&
-            (e.local || '').toUpperCase() === 'LOJA',
+            (e.local || "").toUpperCase() === "LOJA"
         ) || estoque.find((e) => e.produto === nome);
     }
 
@@ -825,13 +825,13 @@ const TelaVendedor = () => {
     const codStr = String(item.cod_produto);
     const prodCad = produtos.find((p) => String(p.codProduto) === codStr);
     const valorUnitario = obterValorUnitario(codStr);
-    const fotoUrl = prodCad && prodCad.fotoUrl ? prodCad.fotoUrl : '';
+    const fotoUrl = prodCad && prodCad.fotoUrl ? prodCad.fotoUrl : "";
 
     return {
       codProduto: codStr,
       produto: item.produto,
       fornecedor: limparFornecedorTexto(
-        item.fornecedor || (prodCad?.fornecedor ?? ''),
+        item.fornecedor || (prodCad?.fornecedor ?? "")
       ),
       valorUnitario,
       fotoUrl,
@@ -853,8 +853,8 @@ const TelaVendedor = () => {
 
       atual.codProduto = info.codProduto;
       atual.produto = info.produto;
-      atual.fornecedor = info.fornecedor || '';
-      atual.fotoUrl = info.fotoUrl || '';
+      atual.fornecedor = info.fornecedor || "";
+      atual.fotoUrl = info.fotoUrl || "";
 
       const qtdeNum = Number(atual.qtde) || 0;
       if (info.valorUnitario && qtdeNum > 0) {
@@ -868,7 +868,7 @@ const TelaVendedor = () => {
         atual.nrVenda = gerarNumeroVenda(atual.data);
       }
 
-      if (atual.forma === 'CREDITO') {
+      if (atual.forma === "CREDITO") {
         atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
       }
 
@@ -899,30 +899,30 @@ const TelaVendedor = () => {
       let atual = { ...anterior, [campo]: valor };
 
       // Data: gera nr venda e ajusta início pgto crédito
-      if (campo === 'data') {
+      if (campo === "data") {
         atual.nrVenda = gerarNumeroVenda(atual.data);
 
-        if (atual.forma === 'CREDITO') {
+        if (atual.forma === "CREDITO") {
           atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
         }
       }
 
       // Forma de pagamento
-      if (campo === 'forma') {
-        if (valor === 'CREDITO') {
+      if (campo === "forma") {
+        if (valor === "CREDITO") {
           atual.inicioPagamento = calcularInicioPgtoCredito(atual.data);
-        } else if (valor === 'PROMISSORIA') {
-          atual.inicioPagamento = '';
+        } else if (valor === "PROMISSORIA") {
+          atual.inicioPagamento = "";
         } else {
-          atual.inicioPagamento = '';
+          atual.inicioPagamento = "";
         }
       }
 
       // Quantidade → recalcula valor bruto automático
-      if (campo === 'qtde') {
+      if (campo === "qtde") {
         const infoProd = encontrarInfoProduto(
           atual.codProduto,
-          atual.produto,
+          atual.produto
         );
         const qtdeNum = Number(valor) || 0;
         const valorUnit = infoProd ? infoProd.valorUnitario : 0;
@@ -935,15 +935,15 @@ const TelaVendedor = () => {
       }
 
       // Sempre que mexer em valores, recalcula valor líquido
-      if (['valorBruto', 'desconto', 'juros', 'qtde'].includes(campo)) {
+      if (["valorBruto", "desconto", "juros", "qtde"].includes(campo)) {
         atual.valorLiq = calcularValorLiquido(atual);
       }
 
       // Seleção de produto por código ou nome digitados diretamente
-      if (!pularProduto && (campo === 'codProduto' || campo === 'produto')) {
+      if (!pularProduto && (campo === "codProduto" || campo === "produto")) {
         const info = encontrarInfoProduto(
-          campo === 'codProduto' ? valor : atual.codProduto,
-          campo === 'produto' ? valor : atual.produto,
+          campo === "codProduto" ? valor : atual.codProduto,
+          campo === "produto" ? valor : atual.produto
         );
         if (info) {
           atual.codProduto = info.codProduto;
@@ -963,169 +963,198 @@ const TelaVendedor = () => {
       return atual;
     });
   };
+const registrarVenda = async () => {
+  if (!novaVenda.codProduto || !novaVenda.cliente) {
+    alert('Informe código do produto e cliente.');
+    return;
+  }
 
-  const registrarVenda = async () => {
-    if (!novaVenda.codProduto || !novaVenda.cliente) {
-      alert('Informe código do produto e cliente.');
-      return;
+  const lancVenda = {
+    ...novaVenda,
+    tipo: 'VENDA',
+    qtde: Number(novaVenda.qtde) || 0,
+    valorBruto: Number(novaVenda.valorBruto) || 0,
+    desconto: Number(novaVenda.desconto) || 0,
+    juros: Number(novaVenda.juros) || 0,
+    valorLiq: calcularValorLiquido(novaVenda),
+    vendedor: usuario || 'Vendedor',
+  };
+
+  if (!lancVenda.nrVenda) {
+    lancVenda.nrVenda = gerarNumeroVenda(lancVenda.data);
+  }
+
+  // 1) Atualiza lançamentos em memória
+  setLancamentos((atual) => [...atual, lancVenda]);
+
+  // 2) Movimento de ESTOQUE DA LOJA (saída = quantidade negativa)
+  const movimentoBase = {
+    cod_produto: lancVenda.codProduto,
+    produto: lancVenda.produto,
+    fornecedor: limparFornecedorTexto(lancVenda.fornecedor),
+    local: 'LOJA',
+    qtde: -Number(lancVenda.qtde || 0),
+    data_entrada: lancVenda.data,
+  };
+
+  let movimentoInserido = null;
+
+  try {
+    const { data: movData, error: movError } = await supabase
+      .from('estoque')
+      .insert(movimentoBase)
+      .select(
+        'id, cod_produto, produto, fornecedor, local, qtde, data_entrada',
+      );
+
+    if (movError) {
+      console.error('Erro ao registrar movimento de estoque da venda:', movError);
+    } else if (movData && movData.length > 0) {
+      movimentoInserido = movData[0];
     }
+  } catch (e) {
+    console.error('Erro inesperado ao registrar movimento de estoque da venda:', e);
+  }
 
-    const lancVenda = {
-      ...novaVenda,
-      tipo: 'VENDA',
-      qtde: Number(novaVenda.qtde) || 0,
-      valorBruto: Number(novaVenda.valorBruto) || 0,
-      desconto: Number(novaVenda.desconto) || 0,
-      juros: Number(novaVenda.juros) || 0,
-      valorLiq: calcularValorLiquido(novaVenda),
-      vendedor: usuario || 'Vendedor',
+  // Mesmo que o Supabase dê erro, garante o movimento no estado local
+  if (!movimentoInserido) {
+    movimentoInserido = {
+      id: Date.now(), // id fake só para controle local
+      ...movimentoBase,
+    };
+  }
+
+  setEstoque((lista) => [...lista, movimentoInserido]);
+
+  // 3) Se for promissória, salva também em promissórias
+  if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
+    const promBase = {
+      nrVenda: lancVenda.nrVenda,
+      cliente: lancVenda.cliente,
+      email: lancVenda.email,
+      valor: lancVenda.valorLiq,
+      dataInicio: lancVenda.inicioPagamento || lancVenda.data,
+      parcelas: lancVenda.parcelas || 1,
+      parcelasAtrasadas: 0,
+      status: 'ABERTO',
+      selecionado: false,
     };
 
-    if (!lancVenda.nrVenda) {
-      lancVenda.nrVenda = gerarNumeroVenda(lancVenda.data);
+    try {
+      const { data: promDb, error: promError } = await supabase
+        .from('promissorias')
+        .insert({
+          nr_venda: promBase.nrVenda,
+          cliente: promBase.cliente,
+          email: promBase.email,
+          valor: promBase.valor,
+          data_inicio: promBase.dataInicio,
+          parcelas: promBase.parcelas,
+          parcelas_atra: promBase.parcelasAtrasadas,
+          status: promBase.status,
+          selecionado: promBase.selecionado,
+        })
+        .select(
+          'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
+        )
+        .single();
+
+      if (promError) {
+        console.error('Erro ao salvar promissória no Supabase:', promError);
+        setPromissorias((lista) => [...lista, promBase]);
+      } else {
+        const novaProm = {
+          id: promDb.id,
+          nrVenda: promDb.nr_venda,
+          cliente: promDb.cliente,
+          email: promDb.email,
+          valor: Number(promDb.valor || 0),
+          dataInicio: promDb.data_inicio,
+          parcelas: promDb.parcelas || 0,
+          parcelasAtrasadas: promDb.parcelas_atra || 0,
+          status: promDb.status || 'ABERTO',
+          selecionado: !!promDb.selecionado,
+        };
+        setPromissorias((lista) => [...lista, novaProm]);
+      }
+    } catch (e) {
+      console.error('Erro inesperado ao salvar promissória:', e);
+      setPromissorias((lista) => [...lista, promBase]);
     }
+  }
 
-    // 1) Atualiza lançamentos em memória
-    setLancamentos((atual) => [...atual, lancVenda]);
+  // 4) Salvar venda no Supabase (tabela lançamentos)
+  try {
+    const nrVendaNumero =
+      parseInt(
+        (lancVenda.nrVenda || '').includes('-')
+          ? lancVenda.nrVenda.split('-')[1]
+          : lancVenda.nrVenda,
+        10,
+      ) || null;
 
-    // 2) Movimenta estoque (LOJA)
-    aplicarMovimentoEstoque({
+    const { error } = await supabase.from('lancamentos').insert({
+      data: lancVenda.data,
       tipo: 'VENDA',
-      codProduto: lancVenda.codProduto,
+      cod_produto: lancVenda.codProduto,
       produto: lancVenda.produto,
       fornecedor: lancVenda.fornecedor,
       qtde: lancVenda.qtde,
-      data: lancVenda.data,
-    });
-
-    // 3) Se for promissória, salva também em promissórias
-    if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
-      const promBase = {
-        nrVenda: lancVenda.nrVenda,
-        cliente: lancVenda.cliente,
-        email: lancVenda.email,
-        valor: lancVenda.valorLiq,
-        dataInicio: lancVenda.inicioPagamento || lancVenda.data,
-        parcelas: lancVenda.parcelas || 1,
-        parcelasAtrasadas: 0,
-        status: 'ABERTO',
-        selecionado: false,
-      };
-
-      try {
-        const { data: promDb, error: promError } = await supabase
-          .from('promissorias')
-          .insert({
-            nr_venda: promBase.nrVenda,
-            cliente: promBase.cliente,
-            email: promBase.email,
-            valor: promBase.valor,
-            data_inicio: promBase.dataInicio,
-            parcelas: promBase.parcelas,
-            parcelas_atra: promBase.parcelasAtrasadas,
-            status: promBase.status,
-            selecionado: promBase.selecionado,
-          })
-          .select(
-            'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
-          )
-          .single();
-
-        if (promError) {
-          console.error('Erro ao salvar promissória no Supabase:', promError);
-          setPromissorias((lista) => [...lista, promBase]);
-        } else {
-          const novaProm = {
-            id: promDb.id,
-            nrVenda: promDb.nr_venda,
-            cliente: promDb.cliente,
-            email: promDb.email,
-            valor: Number(promDb.valor || 0),
-            dataInicio: promDb.data_inicio,
-            parcelas: promDb.parcelas || 0,
-            parcelasAtrasadas: promDb.parcelas_atra || 0,
-            status: promDb.status || 'ABERTO',
-            selecionado: !!promDb.selecionado,
-          };
-          setPromissorias((lista) => [...lista, novaProm]);
-        }
-      } catch (e) {
-        console.error('Erro inesperado ao salvar promissória:', e);
-        setPromissorias((lista) => [...lista, promBase]);
-      }
-    }
-
-    // 4) Salvar venda no Supabase
-    try {
-      const nrVendaNumero =
-        parseInt(
-          (lancVenda.nrVenda || '').includes('-')
-            ? lancVenda.nrVenda.split('-')[1]
-            : lancVenda.nrVenda,
-          10,
-        ) || null;
-
-      const { error } = await supabase.from('lancamentos').insert({
-        data: lancVenda.data,
-        tipo: 'VENDA',
-        cod_produto: lancVenda.codProduto,
-        produto: lancVenda.produto,
-        fornecedor: lancVenda.fornecedor,
-        qtde: lancVenda.qtde,
-        valor_bruto: lancVenda.valorBruto,
-        desconto: lancVenda.desconto,
-        juros: lancVenda.juros,
-        valor_liq: lancVenda.valorLiq,
-        forma: lancVenda.forma,
-        nr_venda: nrVendaNumero,
-        local: 'LOJA',
-        parcelas:
-          (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-            ? lancVenda.parcelas
-            : null,
-        inicio_pagto: lancVenda.inicioPagamento || null,
-        cliente: lancVenda.cliente,
-        email: lancVenda.email,
-        telefone: lancVenda.telefone,
-        vendedor: lancVenda.vendedor,
-        status_recb:
-          (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
-            ? 'PENDENTE'
-            : 'RECEBIDO',
-      });
-
-      if (error) {
-        console.error('Erro ao salvar venda no Supabase:', error);
-        alert('Venda lançada localmente, mas houve erro ao salvar na nuvem.');
-      }
-    } catch (e) {
-      console.error('Erro inesperado ao salvar venda no Supabase:', e);
-      alert('Venda lançada localmente, mas houve erro inesperado na nuvem.');
-    }
-
-    alert('Venda registrada com sucesso!');
-
-    setNovaVenda({
-      data: new Date().toISOString().split('T')[0],
-      cliente: '',
-      email: '',
-      telefone: '',
-      produto: '',
-      codProduto: '',
-      fornecedor: '',
-      qtde: 1,
-      valorBruto: 0,
-      desconto: 0,
-      juros: 0,
-      valorLiq: 0,
-      forma: 'PIX',
-      nrVenda: '',
+      valor_bruto: lancVenda.valorBruto,
+      desconto: lancVenda.desconto,
+      juros: lancVenda.juros,
+      valor_liq: lancVenda.valorLiq,
+      forma: lancVenda.forma,
+      nr_venda: nrVendaNumero,
       local: 'LOJA',
-      parcelas: 1,
-      inicioPagamento: '',
-      fotoUrl: '',
+      parcelas:
+        (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+          ? lancVenda.parcelas
+          : null,
+      inicio_pagto: lancVenda.inicioPagamento || null,
+      cliente: lancVenda.cliente,
+      email: lancVenda.email,
+      telefone: lancVenda.telefone,
+      vendedor: lancVenda.vendedor,
+      status_recb:
+        (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
+          ? 'PENDENTE'
+          : 'RECEBIDO',
     });
-  };
+
+    if (error) {
+      console.error('Erro ao salvar venda no Supabase:', error);
+      alert('Venda lançada localmente, mas houve erro ao salvar na nuvem.');
+    }
+  } catch (e) {
+    console.error('Erro inesperado ao salvar venda no Supabase:', e);
+    alert('Venda lançada localmente, mas houve erro inesperado na nuvem.');
+  }
+
+  alert('Venda registrada com sucesso!');
+
+  // 5) Limpa formulário
+  setNovaVenda({
+    data: new Date().toISOString().split('T')[0],
+    cliente: '',
+    email: '',
+    telefone: '',
+    produto: '',
+    codProduto: '',
+    fornecedor: '',
+    qtde: 1,
+    valorBruto: 0,
+    desconto: 0,
+    juros: 0,
+    valorLiq: 0,
+    forma: 'PIX',
+    nrVenda: '',
+    local: 'LOJA',
+    parcelas: 1,
+    inicioPagamento: '',
+    fotoUrl: '',
+  });
+};
 
   return (
     <div className="p-6 space-y-6" style={appStyle}>
@@ -1146,7 +1175,7 @@ const TelaVendedor = () => {
                 <input
                   type="date"
                   value={novaVenda.data}
-                  onChange={(e) => handleChange('data', e.target.value)}
+                  onChange={(e) => handleChange("data", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
@@ -1155,7 +1184,7 @@ const TelaVendedor = () => {
                 <input
                   type="text"
                   value={novaVenda.nrVenda}
-                  onChange={(e) => handleChange('nrVenda', e.target.value)}
+                  onChange={(e) => handleChange("nrVenda", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                   placeholder="Gerado automaticamente"
                 />
@@ -1166,7 +1195,7 @@ const TelaVendedor = () => {
                 </label>
                 <select
                   value={novaVenda.forma}
-                  onChange={(e) => handleChange('forma', e.target.value)}
+                  onChange={(e) => handleChange("forma", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="PIX">PIX</option>
@@ -1183,7 +1212,7 @@ const TelaVendedor = () => {
                   min={1}
                   value={novaVenda.parcelas}
                   onChange={(e) =>
-                    handleChange('parcelas', Number(e.target.value))
+                    handleChange("parcelas", Number(e.target.value))
                   }
                   className="w-full px-3 py-2 border rounded-lg"
                 />
@@ -1196,16 +1225,16 @@ const TelaVendedor = () => {
                   type="date"
                   value={novaVenda.inicioPagamento}
                   onChange={(e) =>
-                    handleChange('inicioPagamento', e.target.value)
+                    handleChange("inicioPagamento", e.target.value)
                   }
-                  disabled={novaVenda.forma === 'CREDITO'}
+                  disabled={novaVenda.forma === "CREDITO"}
                   className={`w-full px-3 py-2 border rounded-lg ${
-                    novaVenda.forma === 'CREDITO'
-                      ? 'bg-gray-100 text-gray-500'
-                      : ''
+                    novaVenda.forma === "CREDITO"
+                      ? "bg-gray-100 text-gray-500"
+                      : ""
                   }`}
                 />
-                {novaVenda.forma === 'CREDITO' && (
+                {novaVenda.forma === "CREDITO" && (
                   <p className="text-[10px] text-gray-500 mt-1">
                     Para crédito, o início é calculado para o dia 5 do mês
                     seguinte.
@@ -1221,7 +1250,7 @@ const TelaVendedor = () => {
                 <input
                   type="text"
                   value={novaVenda.cliente}
-                  onChange={(e) => handleChange('cliente', e.target.value)}
+                  onChange={(e) => handleChange("cliente", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
@@ -1230,7 +1259,7 @@ const TelaVendedor = () => {
                 <input
                   type="email"
                   value={novaVenda.email}
-                  onChange={(e) => handleChange('email', e.target.value)}
+                  onChange={(e) => handleChange("email", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
@@ -1239,7 +1268,7 @@ const TelaVendedor = () => {
                 <input
                   type="text"
                   value={novaVenda.telefone}
-                  onChange={(e) => handleChange('telefone', e.target.value)}
+                  onChange={(e) => handleChange("telefone", e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
@@ -1253,9 +1282,7 @@ const TelaVendedor = () => {
                 </label>
                 <select
                   value={novaVenda.codProduto}
-                  onChange={(e) =>
-                    selecionarProdutoPorCodigo(e.target.value)
-                  }
+                  onChange={(e) => selecionarProdutoPorCodigo(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="">Selecione...</option>
@@ -1270,9 +1297,7 @@ const TelaVendedor = () => {
                 <label className="block font-semibold mb-1">Produto</label>
                 <select
                   value={novaVenda.produto}
-                  onChange={(e) =>
-                    selecionarProdutoPorNome(e.target.value)
-                  }
+                  onChange={(e) => selecionarProdutoPorNome(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg"
                 >
                   <option value="">Selecione...</option>
@@ -1289,7 +1314,7 @@ const TelaVendedor = () => {
                   type="text"
                   value={novaVenda.fornecedor}
                   onChange={(e) =>
-                    handleChange('fornecedor', e.target.value)
+                    handleChange("fornecedor", e.target.value)
                   }
                   className="w-full px-3 py-2 border rounded-lg"
                   readOnly
@@ -1301,9 +1326,7 @@ const TelaVendedor = () => {
                   type="number"
                   min={1}
                   value={novaVenda.qtde}
-                  onChange={(e) =>
-                    handleChange('qtde', Number(e.target.value))
-                  }
+                  onChange={(e) => handleChange("qtde", Number(e.target.value))}
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
@@ -1317,9 +1340,7 @@ const TelaVendedor = () => {
                 </label>
                 <input
                   type="text"
-                  value={novaVenda.valorBruto
-                    .toFixed(2)
-                    .replace('.', ',')}
+                  value={novaVenda.valorBruto.toFixed(2).replace(".", ",")}
                   readOnly
                   className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-700"
                 />
@@ -1334,7 +1355,7 @@ const TelaVendedor = () => {
                   step="0.01"
                   value={novaVenda.desconto}
                   onChange={(e) =>
-                    handleChange('desconto', Number(e.target.value))
+                    handleChange("desconto", Number(e.target.value))
                   }
                   className="w-full px-3 py-2 border rounded-lg"
                 />
@@ -1349,7 +1370,7 @@ const TelaVendedor = () => {
                   step="0.01"
                   value={novaVenda.juros}
                   onChange={(e) =>
-                    handleChange('juros', Number(e.target.value))
+                    handleChange("juros", Number(e.target.value))
                   }
                   className="w-full px-3 py-2 border rounded-lg"
                 />
@@ -1386,7 +1407,7 @@ const TelaVendedor = () => {
                   className="w-full h-full object-contain"
                   onError={(e) => {
                     e.target.onerror = null;
-                    e.target.src = '';
+                    e.target.src = "";
                   }}
                 />
               ) : (
@@ -1402,86 +1423,150 @@ const TelaVendedor = () => {
     </div>
   );
 };
+   
+// ======================================================================
+// TELA HISTÓRICO (com Nr Venda, Forma e Valor Final)
+// ======================================================================
 
-  // ======================================================================
-  // TELA HISTÓRICO (apresentação simples só para manter funcional)
-  // ======================================================================
+const TelaHistorico = () => {
+  // Garante que sempre temos o valor final, independente do nome do campo
+  const pegarValorFinal = (l) => {
+    if (l.valorLiq != null) return Number(l.valorLiq);
+    if (l.valor_liq != null) return Number(l.valor_liq);
+    if (l.valorBruto != null) return Number(l.valorBruto);
+    if (l.valor_bruto != null) return Number(l.valor_bruto);
+    return 0;
+  };
 
-  const TelaHistorico = () => {
-    return (
-      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
-          Histórico de Lançamentos
-        </h2>
-        <div
-          style={{
-            background: '#ffffff',
-            borderRadius: '8px',
-            padding: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          }}
-        >
-          <div style={{ overflowX: 'auto', fontSize: '12px' }}>
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                textAlign: 'center',
-              }}
-            >
-              <thead>
-                <tr style={{ background: '#f3f4f6' }}>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Data
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Tipo
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Produto
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Qtde
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Valor Bruto
-                  </th>
+  const pegarNrVenda = (l) => {
+    if (l.nrVenda != null) return l.nrVenda;
+    if (l.nr_venda != null) return l.nr_venda;
+    return '';
+  };
+
+  const pegarForma = (l) => l.forma || '';
+
+  return (
+    <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
+        Histórico de Lançamentos
+      </h2>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: '8px',
+          padding: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        }}
+      >
+        <div style={{ overflowX: 'auto', fontSize: '11px' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              textAlign: 'center',
+            }}
+          >
+            <thead>
+              <tr style={{ background: '#f3f4f6' }}>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Data
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Tipo
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Nr Venda
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Forma Pgto
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Produto
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Qtde
+                </th>
+                <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
+                  Valor Final da Venda
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {lancamentos.map((l, idx) => (
+                <tr key={idx}>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {formatarDataBR(l.data)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {l.tipo}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {pegarNrVenda(l)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {pegarForma(l)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {l.produto}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {l.qtde}
+                  </td>
+                  <td
+                    style={{
+                      padding: '4px 6px',
+                      borderBottom: '1px solid #f3f4f6',
+                    }}
+                  >
+                    {formatarReal(pegarValorFinal(l))}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {lancamentos.map((l, idx) => (
-                  <tr key={idx}>
-                    <td style={{ padding: '4px 6px', borderBottom: '1px solid #f3f4f6' }}>
-                      {formatarDataBR(l.data)}
-                    </td>
-                    <td style={{ padding: '4px 6px', borderBottom: '1px solid #f3f4f6' }}>
-                      {l.tipo}
-                    </td>
-                    <td style={{ padding: '4px 6px', borderBottom: '1px solid #f3f4f6' }}>
-                      {l.produto}
-                    </td>
-                    <td style={{ padding: '4px 6px', borderBottom: '1px solid #f3f4f6' }}>
-                      {l.qtde}
-                    </td>
-                    <td style={{ padding: '4px 6px', borderBottom: '1px solid #f3f4f6' }}>
-                      {formatarReal(l.valor_bruto)}
-                    </td>
-                  </tr>
-                ))}
-                {lancamentos.length === 0 && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: '8px', fontSize: '11px' }}>
-                      Nenhum lançamento registrado.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {lancamentos.length === 0 && (
+                <tr>
+                  <td colSpan={7} style={{ padding: '8px', fontSize: '11px' }}>
+                    Nenhum lançamento registrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   // ======================================================================
   // (continua na PARTE 3/3)
