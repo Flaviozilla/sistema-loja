@@ -3759,13 +3759,15 @@ const TelaPagamentoPromissorias = () => {
   const [erro, setErro] = useState('');
   const [msg, setMsg] = useState('');
 
-  // Carrega promissórias em aberto (para montar a lista de Nr Venda)
+  // --------------------------------------------------------------------
+  // Carregar promissórias em aberto (fonte da lista de Nr Venda)
+  // --------------------------------------------------------------------
   const carregarPromissorias = async () => {
     setErro('');
     const { data, error } = await supabase
-      .from('promissorias')      // nome da tabela que você já usa
+      .from('promissorias') // nome da tabela de promissórias
       .select('*')
-      .order('nr_venda', { ascending: true });
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('Erro ao carregar promissórias:', error);
@@ -3775,13 +3777,16 @@ const TelaPagamentoPromissorias = () => {
     setListaPromissorias(data || []);
   };
 
-  // Carrega pagamentos já efetuados (para listar na tabela abaixo, se quiser)
+  // --------------------------------------------------------------------
+  // Carregar pagamentos já efetuados (para exibir na tabela)
+  // --------------------------------------------------------------------
   const carregarPagamentos = async () => {
     setErro('');
     const { data, error } = await supabase
       .from('pagamentos_promissorias')
       .select('*')
-      .order('data_pagamento', { ascending: false });
+      .order('data_pagamento', { ascending: false })
+      .order('id', { ascending: false });
 
     if (error) {
       console.error('Erro ao carregar pagamentos:', error);
@@ -3796,55 +3801,78 @@ const TelaPagamentoPromissorias = () => {
     carregarPagamentos();
   }, []);
 
-  // Promissória selecionada (com base no Nr Venda)
+  // --------------------------------------------------------------------
+  // Localiza a promissória selecionada pelo Nr Venda
+  // --------------------------------------------------------------------
   const promissoriaSelecionada = useMemo(() => {
     if (!form.nrVenda) return null;
-    return listaPromissorias.find(p => {
-      // ajuste o nome do campo conforme sua tabela: nr_venda ou nrVenda
-      return (p.nr_venda || p.nrVenda) === form.nrVenda;
-    }) || null;
+
+    return (
+      listaPromissorias.find((p) => {
+        const nr =
+          p.nr_venda != null
+            ? p.nr_venda
+            : p.nrVenda != null
+            ? p.nrVenda
+            : '';
+        return nr === form.nrVenda;
+      }) || null
+    );
   }, [form.nrVenda, listaPromissorias]);
 
-  // Derivados: cliente, parcelas, saldoDevedor
+  // --------------------------------------------------------------------
+  // Campos derivados automaticamente
+  // --------------------------------------------------------------------
   const cliente = promissoriaSelecionada
-    ? (promissoriaSelecionada.cliente || '')
+    ? promissoriaSelecionada.cliente || promissoriaSelecionada.nome_cliente || ''
     : '';
 
-  // Se você tiver um campo pronto como parcelasAtrasadas, use direto:
+  // Parcelas em atraso: tenta usar campos comuns, senão 0
   const parcelasAtrasadas = promissoriaSelecionada
-    ? (promissoriaSelecionada.parcelas_atrasadas ||
-       promissoriaSelecionada.parcelasAtrasadas ||
-       0)
+    ? Number(
+        promissoriaSelecionada.parcelas_atrasadas ??
+          promissoriaSelecionada.parcelasAtrasadas ??
+          promissoriaSelecionada.qtdeParcelasAtrasadas ??
+          0
+      )
     : 0;
 
+  // Saldo devedor total (atrasado ou não)
   const saldoDevedor = promissoriaSelecionada
     ? Number(
-        promissoriaSelecionada.saldo_devedor ||
-        promissoriaSelecionada.saldoDevedor ||
-        promissoriaSelecionada.total_em_aberto ||
-        promissoriaSelecionada.totalEmAberto ||
-        0
+        promissoriaSelecionada.saldo_devedor ??
+          promissoriaSelecionada.saldoDevedor ??
+          promissoriaSelecionada.total_em_aberto ??
+          promissoriaSelecionada.totalEmAberto ??
+          0
       )
     : 0;
 
   const valorPagoNum = Number(form.valorPago || 0);
   const saldoFinal = Math.max(saldoDevedor - valorPagoNum, 0);
 
+  // Opções de forma de pagamento (sem "Promissória")
   const formasPagamento = [
     'Dinheiro',
     'Pix',
     'Cartão Crédito',
     'Cartão Débito',
     'Boleto',
-    // NÃO incluir 'Promissória' aqui
+    'Transferência',
   ];
 
   const handleChange = (campo, valor) => {
-    setForm(prev => ({ ...prev, [campo]: valor }));
+    setForm((prev) => ({ ...prev, [campo]: valor }));
     setMsg('');
     setErro('');
   };
 
+  // --------------------------------------------------------------------
+  // Salvar pagamento:
+  // - registra na tabela pagamentos_promissorias
+  // - soma valor no Histórico
+  // - abate saldo na Promissórias (e exclui se zerar)
+  // --------------------------------------------------------------------
   const salvarPagamento = async () => {
     setErro('');
     setMsg('');
@@ -3897,7 +3925,7 @@ const TelaPagamentoPromissorias = () => {
       }
 
       // 2) ATUALIZA HISTÓRICO: soma Valor Pago ao Valor Final
-      // Ajuste nomes de tabela/campos conforme seu banco:
+      // Ajuste o nome da tabela/campos se for diferente no seu banco
       const { data: histRow, error: errHist } = await supabase
         .from('historico')
         .select('*')
@@ -3906,14 +3934,18 @@ const TelaPagamentoPromissorias = () => {
 
       if (errHist) {
         console.error('Erro ao buscar histórico:', errHist);
-        // não interrompe o fluxo, apenas registra o log
+        // segue adiante mesmo se falhar
       } else if (histRow) {
         const valorAtual =
-          Number(histRow.valor_final ??
-                 histRow.valorFinal ??
-                 histRow.valorLiq ??
-                 histRow.valor_liq ??
-                 0);
+          Number(
+            histRow.valor_final ??
+              histRow.valorFinal ??
+              histRow.valorLiq ??
+              histRow.valor_liq ??
+              histRow.valorBruto ??
+              histRow.valor_bruto ??
+              0
+          ) || 0;
 
         const novoValorFinal = valorAtual + valorPagoNum;
 
@@ -3921,41 +3953,41 @@ const TelaPagamentoPromissorias = () => {
           .from('historico')
           .update({
             valor_final: novoValorFinal,
-            // se você usa outro nome, mantenha ele também:
             valorFinal: novoValorFinal,
           })
           .eq('id', histRow.id);
 
         if (errUpdHist) {
           console.error('Erro ao atualizar histórico:', errUpdHist);
-          // segue mesmo assim, pois o pagamento já foi registrado
         }
       }
 
-      // 3) ATUALIZA PROMISSÓRIAS: abate no saldo e no total em aberto
-      const { error: errUpdProm } = await supabase
-        .from('promissorias')
-        .update({
-          saldo_devedor: saldoFinal,
-          saldoDevedor: saldoFinal,
-          total_em_aberto: saldoFinal,
-          totalEmAberto: saldoFinal,
-        })
-        .eq('id', promissoriaSelecionada.id);
-
-      if (errUpdProm) {
-        console.error('Erro ao atualizar promissória:', errUpdProm);
-      }
-
-      // 4) SE SALDO FINAL = 0, EXCLUI A LINHA EM PROMISSÓRIAS
-      if (saldoFinal <= 0.000001) {
-        const { error: errDel } = await supabase
+      // 3) ATUALIZA PROMISSÓRIAS: abate saldo e total em aberto
+      if (promissoriaSelecionada.id != null) {
+        const { error: errUpdProm } = await supabase
           .from('promissorias')
-          .delete()
+          .update({
+            saldo_devedor: saldoFinal,
+            saldoDevedor: saldoFinal,
+            total_em_aberto: saldoFinal,
+            totalEmAberto: saldoFinal,
+          })
           .eq('id', promissoriaSelecionada.id);
 
-        if (errDel) {
-          console.error('Erro ao excluir promissória zerada:', errDel);
+        if (errUpdProm) {
+          console.error('Erro ao atualizar promissória:', errUpdProm);
+        }
+
+        // 4) SE SALDO FINAL = 0, EXCLUI A LINHA EM PROMISSÓRIAS
+        if (saldoFinal <= 0.000001) {
+          const { error: errDel } = await supabase
+            .from('promissorias')
+            .delete()
+            .eq('id', promissoriaSelecionada.id);
+
+          if (errDel) {
+            console.error('Erro ao excluir promissória zerada:', errDel);
+          }
         }
       }
 
@@ -3963,19 +3995,25 @@ const TelaPagamentoPromissorias = () => {
       await carregarPromissorias();
       await carregarPagamentos();
 
-      setForm(prev => ({
+      setForm({
         data: hojeISO,
         nrVenda: '',
         forma: '',
         valorPago: '',
-      }));
+      });
 
       setMsg('Pagamento registrado com sucesso.');
+    } catch (e) {
+      console.error('Erro inesperado ao salvar pagamento:', e);
+      setErro('Erro inesperado ao salvar o pagamento.');
     } finally {
       setLoading(false);
     }
   };
 
+  // --------------------------------------------------------------------
+  // RENDER
+  // --------------------------------------------------------------------
   return (
     <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
@@ -3983,10 +4021,14 @@ const TelaPagamentoPromissorias = () => {
       </h2>
 
       {erro && (
-        <div style={{ color: 'red', marginBottom: '8px' }}>{erro}</div>
+        <div style={{ color: 'red', marginBottom: '8px' }}>
+          {erro}
+        </div>
       )}
       {msg && (
-        <div style={{ color: 'green', marginBottom: '8px' }}>{msg}</div>
+        <div style={{ color: 'green', marginBottom: '8px' }}>
+          {msg}
+        </div>
       )}
 
       {/* FORMULÁRIO DE PAGAMENTO */}
@@ -4004,40 +4046,45 @@ const TelaPagamentoPromissorias = () => {
             <input
               type="date"
               value={form.data}
-              onChange={e => handleChange('data', e.target.value)}
+              onChange={(e) => handleChange('data', e.target.value)}
               style={{ width: '100%' }}
             />
           </div>
 
-          <div style={{ flex: '0 0 180px' }}>
+          <div style={{ flex: '0 0 200px' }}>
             <label>Nr Venda</label>
             <select
               value={form.nrVenda}
-              onChange={e => handleChange('nrVenda', e.target.value)}
+              onChange={(e) => handleChange('nrVenda', e.target.value)}
               style={{ width: '100%' }}
             >
               <option value="">Selecione...</option>
-              {listaPromissorias.map(p => {
-                const nr = p.nr_venda || p.nrVenda || '';
-                const cli = p.cliente || '';
+              {listaPromissorias.map((p) => {
+                const nr =
+                  p.nr_venda != null
+                    ? p.nr_venda
+                    : p.nrVenda != null
+                    ? p.nrVenda
+                    : '';
+                const cli = p.cliente || p.nome_cliente || '';
                 return (
                   <option key={p.id} value={nr}>
-                    {nr} - {cli}
+                    {nr} {cli ? `- ${cli}` : ''}
                   </option>
                 );
               })}
             </select>
           </div>
 
-          <div style={{ flex: '0 0 180px' }}>
+          <div style={{ flex: '0 0 200px' }}>
             <label>Forma de Pagamento</label>
             <select
               value={form.forma}
-              onChange={e => handleChange('forma', e.target.value)}
+              onChange={(e) => handleChange('forma', e.target.value)}
               style={{ width: '100%' }}
             >
               <option value="">Selecione...</option>
-              {formasPagamento.map(f => (
+              {formasPagamento.map((f) => (
                 <option key={f} value={f}>
                   {f}
                 </option>
@@ -4045,14 +4092,14 @@ const TelaPagamentoPromissorias = () => {
             </select>
           </div>
 
-          <div style={{ flex: '0 0 140px' }}>
+          <div style={{ flex: '0 0 160px' }}>
             <label>Valor Pago</label>
             <input
               type="number"
               min="0"
               step="0.01"
               value={form.valorPago}
-              onChange={e => handleChange('valorPago', e.target.value)}
+              onChange={(e) => handleChange('valorPago', e.target.value)}
               style={{ width: '100%', textAlign: 'right' }}
             />
           </div>
@@ -4060,7 +4107,7 @@ const TelaPagamentoPromissorias = () => {
 
         {/* CAMPOS AUTOMÁTICOS */}
         <div style={{ display: 'flex', gap: '8px' }}>
-          <div style={{ flex: '0 0 250px' }}>
+          <div style={{ flex: '1 1 auto' }}>
             <label>Cliente</label>
             <input
               type="text"
@@ -4070,7 +4117,7 @@ const TelaPagamentoPromissorias = () => {
             />
           </div>
 
-          <div style={{ flex: '0 0 120px' }}>
+          <div style={{ flex: '0 0 150px' }}>
             <label>Parcelas em atraso</label>
             <input
               type="number"
@@ -4080,7 +4127,7 @@ const TelaPagamentoPromissorias = () => {
             />
           </div>
 
-          <div style={{ flex: '0 0 140px' }}>
+          <div style={{ flex: '0 0 160px' }}>
             <label>Saldo Devedor</label>
             <input
               type="text"
@@ -4090,7 +4137,7 @@ const TelaPagamentoPromissorias = () => {
             />
           </div>
 
-          <div style={{ flex: '0 0 160px' }}>
+          <div style={{ flex: '0 0 180px' }}>
             <label>Saldo Devedor Final</label>
             <input
               type="text"
@@ -4115,10 +4162,17 @@ const TelaPagamentoPromissorias = () => {
         </div>
       </div>
 
-      {/* TABELA DE PAGAMENTOS JÁ EFETUADOS (OPCIONAL) */}
-      <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px' }}>
+      {/* TABELA DE PAGAMENTOS JÁ REGISTRADOS */}
+      <h3
+        style={{
+          fontSize: '16px',
+          fontWeight: 'bold',
+          marginBottom: '4px',
+        }}
+      >
         Pagamentos registrados
       </h3>
+
       <div style={{ overflowX: 'auto' }}>
         <table
           style={{
@@ -4129,40 +4183,95 @@ const TelaPagamentoPromissorias = () => {
         >
           <thead>
             <tr>
-              <th>Data</th>
-              <th>Nr Venda</th>
-              <th>Forma</th>
-              <th>Cliente</th>
-              <th>Parcelas</th>
-              <th>Saldo Anterior</th>
-              <th>Valor Pago</th>
-              <th>Saldo Final</th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Data
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Nr Venda
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Forma
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Cliente
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Parcelas
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Saldo Anterior
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Valor Pago
+              </th>
+              <th style={{ borderBottom: '1px solid #ddd', padding: '4px' }}>
+                Saldo Final
+              </th>
             </tr>
           </thead>
           <tbody>
-            {listaPagamentos.map(p => (
+            {listaPagamentos.map((p) => (
               <tr key={p.id}>
-                <td>{p.data_pagamento}</td>
-                <td>{p.nr_venda}</td>
-                <td>{p.forma_pagamento}</td>
-                <td>{p.cliente}</td>
-                <td style={{ textAlign: 'right' }}>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.data_pagamento}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.nr_venda}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.forma_pagamento}
+                </td>
+                <td style={{ borderBottom: '1px solid #f0f0f0', padding: '4px' }}>
+                  {p.cliente}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
                   {p.parcelas_atrasadas}
                 </td>
-                <td style={{ textAlign: 'right' }}>
-                  {Number(p.saldo_devedor).toFixed(2)}
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.saldo_devedor || 0).toFixed(2)}
                 </td>
-                <td style={{ textAlign: 'right' }}>
-                  {Number(p.valor_pago).toFixed(2)}
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.valor_pago || 0).toFixed(2)}
                 </td>
-                <td style={{ textAlign: 'right' }}>
-                  {Number(p.saldo_devedor_final).toFixed(2)}
+                <td
+                  style={{
+                    borderBottom: '1px solid #f0f0f0',
+                    padding: '4px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {Number(p.saldo_devedor_final || 0).toFixed(2)}
                 </td>
               </tr>
             ))}
             {listaPagamentos.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ textAlign: 'center', padding: '8px' }}>
+                <td
+                  colSpan={8}
+                  style={{
+                    textAlign: 'center',
+                    padding: '8px',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}
+                >
                   Nenhum pagamento registrado ainda.
                 </td>
               </tr>
