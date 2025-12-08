@@ -495,13 +495,15 @@ const MenuNavegacao = () => {
   if (!perfil) return null;
 
   const itens = [
-    { id: 'dashboard', label: 'Painel' },
-    { id: 'vendedor', label: 'Lançamentos (Vendas)' },
-    { id: 'historico', label: 'Histórico' },
-    { id: 'inventario', label: 'Inventário' },
-    { id: 'produtos', label: 'Produtos / Compras' },
-    { id: 'promissorias', label: 'Promissórias' },
-  ];
+  { id: 'dashboard', label: 'Painel' },
+  { id: 'vendedor', label: 'Lançamentos (Vendas)' },
+  { id: 'historico', label: 'Histórico' },
+  { id: 'inventario', label: 'Inventário' },
+  { id: 'produtos', label: 'Produtos / Compras' },
+  { id: 'orcamento', label: 'Orçamento' },   // << NOVA ABA
+  { id: 'promissorias', label: 'Promissórias' },
+];
+
 
   // Somente ADM enxerga Pag. Promissórias e Usuários
   if (perfil === 'ADM') {
@@ -3679,6 +3681,739 @@ const TelaVendedor = () => {
       </div>
     );
   };
+    // ======================================================================
+  // TELA DE ORÇAMENTO
+  // ======================================================================
+  const TelaOrcamento = () => {
+    const pad2 = (n) => (n < 10 ? '0' : '') + n;
+
+    const hoje = new Date();
+    const hojeISO = hoje.toISOString().slice(0, 10); // yyyy-mm-dd
+
+    const gerarNumeroOrcamento = () => {
+      const aa = String(hoje.getFullYear()).slice(-2);
+      const mm = pad2(hoje.getMonth() + 1);
+      const dd = pad2(hoje.getDate());
+      const chave = `orcamentoSeq_${aa}${mm}${dd}`;
+
+      let seq = 1;
+      try {
+        const salvo = localStorage.getItem(chave);
+        if (salvo) {
+          seq = Number(salvo) + 1;
+        }
+        localStorage.setItem(chave, String(seq));
+      } catch (e) {
+        console.error('Erro ao acessar localStorage para nº de orçamento:', e);
+      }
+
+      return `${aa}${mm}${dd}/${seq}`;
+    };
+
+    const [cabecalho, setCabecalho] = useState({
+      cliente: '',
+      vendedor: '',
+      numero: gerarNumeroOrcamento(),
+      data: hojeISO,
+      dataPrevista: '',
+    });
+
+    const [itens, setItens] = useState([
+      {
+        id: 1,
+        descricao: '',
+        codProduto: '',
+        qtde: 1,
+        preco: 0,
+        desconto: 0,
+        valorUnitario: 0,
+        valorTotal: 0,
+      },
+    ]);
+
+    // Atualiza cabeçalho
+    const handleCabecalhoChange = (campo, valor) => {
+      setCabecalho((prev) => ({ ...prev, [campo]: valor }));
+    };
+
+    // Busca produto pelo código ou nome
+    const encontrarProdutoPorCodigo = (cod) => {
+      if (!cod) return null;
+      return produtos.find(
+        (p) =>
+          String(p.codProduto || '').toLowerCase() ===
+          String(cod || '').toLowerCase(),
+      );
+    };
+
+    const encontrarProdutoPorNome = (nome) => {
+      if (!nome) return null;
+      return produtos.find(
+        (p) => String(p.nome || '').toLowerCase() === String(nome || '').toLowerCase(),
+      );
+    };
+
+    const recalcularItem = (itemBase) => {
+      const qtde = Number(itemBase.qtde || 0);
+      const preco = Number(itemBase.preco || 0);
+      const desconto = Number(itemBase.desconto || 0);
+
+      const valorUnitario = Math.max(preco - desconto, 0);
+      const valorTotal = valorUnitario * qtde;
+
+      return {
+        ...itemBase,
+        valorUnitario,
+        valorTotal,
+      };
+    };
+
+    const atualizarItem = (id, novoItemParcial) => {
+      setItens((lista) =>
+        lista.map((it) =>
+          it.id === id ? recalcularItem({ ...it, ...novoItemParcial }) : it,
+        ),
+      );
+    };
+
+    const handleItemChange = (id, campo, valor) => {
+      // Atualização normal
+      if (campo === 'qtde' || campo === 'desconto') {
+        atualizarItem(id, { [campo]: Number(valor || 0) });
+        return;
+      }
+
+      if (campo === 'codProduto') {
+        const prod = encontrarProdutoPorCodigo(valor);
+        if (prod) {
+          atualizarItem(id, {
+            codProduto: prod.codProduto,
+            descricao: prod.nome,
+            preco: Number(prod.valorUnitario || 0),
+          });
+        } else {
+          atualizarItem(id, { codProduto: valor });
+        }
+        return;
+      }
+
+      if (campo === 'descricao') {
+        const prod = encontrarProdutoPorNome(valor);
+        if (prod) {
+          atualizarItem(id, {
+            codProduto: prod.codProduto,
+            descricao: prod.nome,
+            preco: Number(prod.valorUnitario || 0),
+          });
+        } else {
+          atualizarItem(id, { descricao: valor });
+        }
+        return;
+      }
+
+      if (campo === 'preco') {
+        atualizarItem(id, { preco: Number(valor || 0) });
+        return;
+      }
+
+      // fallback
+      atualizarItem(id, { [campo]: valor });
+    };
+
+    const adicionarItem = () => {
+      setItens((lista) => [
+        ...lista,
+        {
+          id: Date.now(),
+          descricao: '',
+          codProduto: '',
+          qtde: 1,
+          preco: 0,
+          desconto: 0,
+          valorUnitario: 0,
+          valorTotal: 0,
+        },
+      ]);
+    };
+
+    const removerItem = (id) => {
+      setItens((lista) => {
+        if (lista.length === 1) return lista; // mantém pelo menos 1 linha
+        return lista.filter((it) => it.id !== id);
+      });
+    };
+
+    const totalOrcamento = itens.reduce(
+      (acc, it) => acc + Number(it.valorTotal || 0),
+      0,
+    );
+
+    const gerarPDF = () => {
+  if (!cabecalho.cliente) {
+    alert('Informe o nome do cliente antes de gerar o orçamento.');
+    return;
+  }
+  if (!itens.length || itens.every((it) => !it.descricao)) {
+    alert('Inclua pelo menos 1 item no orçamento.');
+    return;
+  }
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+
+  const linhasHtml = itens
+    .filter((it) => it.descricao)
+    .map(
+      (it, idx) => `
+        <tr>
+          <td style="border:1px solid #ddd;padding:4px;">${idx + 1}</td>
+          <td style="border:1px solid #ddd;padding:4px;">${it.descricao || ''}</td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:center;">
+            ${it.codProduto || ''}
+          </td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:right;">
+            ${Number(it.qtde || 0).toFixed(2)}
+          </td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:right;">
+            ${formatarReal(Number(it.preco || 0))}
+          </td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:right;">
+            ${formatarReal(Number(it.desconto || 0))}
+          </td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:right;">
+            ${formatarReal(Number(it.valorUnitario || 0))}
+          </td>
+          <td style="border:1px solid #ddd;padding:4px;text-align:right;">
+            ${formatarReal(Number(it.valorTotal || 0))}
+          </td>
+        </tr>
+      `,
+    )
+    .join('');
+
+  const html = `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Orçamento - ${cabecalho.numero}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 16px; font-size: 12px; }
+          .linha { display:flex; justify-content:space-between; margin-bottom:4px; }
+          .label { font-weight:bold; }
+          table { width:100%; border-collapse:collapse; margin-top:12px; }
+          th, td { font-size:11px; }
+          th { background:#f3f4f6; border:1px solid #ddd; padding:4px; }
+          .rodape {
+            margin-top: 24px;
+            padding-top: 6px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 10px;
+            text-align: center;
+            color: #4b5563;
+            line-height: 1.3;
+          }
+        </style>
+      </head>
+      <body>
+        <div style="text-align:center;margin-bottom:8px;">
+  <img
+    src="/logo-wolves.png"
+    alt="Logo"
+    style="width:90px;height:90px;object-fit:contain;border-radius:50%;"
+  />
+  <h2 style="margin:4px 0;">ORÇAMENTO</h2>
+</div>
+
+
+        <div style="margin-bottom:8px;">
+          <div class="linha">
+            <span><span class="label">Cliente:</span> ${cabecalho.cliente}</span>
+          </div>
+          <div class="linha">
+            <span><span class="label">Vendedor:</span> ${cabecalho.vendedor || ''}</span>
+          </div>
+          <div class="linha">
+            <span><span class="label">Número do pedido:</span> ${cabecalho.numero}</span>
+          </div>
+          <div class="linha">
+            <span><span class="label">Data:</span> ${formatarDataBR(cabecalho.data)}</span>
+          </div>
+          <div class="linha">
+            <span><span class="label">Data prevista:</span> ${
+              cabecalho.dataPrevista ? formatarDataBR(cabecalho.dataPrevista) : ''
+            }</span>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Descrição do produto/serviço</th>
+              <th>Código</th>
+              <th>Quantidade</th>
+              <th>Preço</th>
+              <th>Desconto</th>
+              <th>Valor unitário</th>
+              <th>Valor total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              linhasHtml ||
+              '<tr><td colspan="8" style="text-align:center;padding:8px;">Nenhum item informado.</td></tr>'
+            }
+          </tbody>
+        </table>
+
+        <div style="margin-top:12px; text-align:right;">
+          <span class="label">Total do orçamento: </span>
+          <span>${formatarReal(totalOrcamento)}</span>
+        </div>
+
+        <div class="rodape">
+          <div>Wolves Artigos Militares</div>
+          <div>Av. do Exército, S/Nº - Santo Antônio II, Montes Claros</div>
+          <div>CNPJ 00.000.000/0001-00</div>
+          <div>Telefone:(38) 99937-5309</div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+};
+
+    return (
+      <div
+        style={{
+          padding: '16px',
+          maxWidth: '1200px',
+          margin: '0 auto',
+        }}
+      >
+        <h2
+          style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            marginBottom: '8px',
+          }}
+        >
+          Orçamento
+        </h2>
+
+        {/* Cabeçalho */}
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: '8px',
+            padding: '12px',
+            marginBottom: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            fontSize: '13px',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.5fr 1fr 1fr',
+              gap: '8px',
+              marginBottom: '8px',
+            }}
+          >
+            <div>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>
+                Cliente
+              </label>
+              <input
+                type="text"
+                value={cabecalho.cliente}
+                onChange={(e) =>
+                  handleCabecalhoChange('cliente', e.target.value)
+                }
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>
+                Vendedor
+              </label>
+              <input
+                type="text"
+                value={cabecalho.vendedor}
+                onChange={(e) =>
+                  handleCabecalhoChange('vendedor', e.target.value)
+                }
+                placeholder="Preencha com o usuário do sistema"
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>
+                Número do pedido
+              </label>
+              <input
+                type="text"
+                value={cabecalho.numero}
+                readOnly
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                  background: '#f3f4f6',
+                }}
+              />
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '8px',
+            }}
+          >
+            <div>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>
+                Data
+              </label>
+              <input
+                type="date"
+                value={cabecalho.data}
+                onChange={(e) =>
+                  handleCabecalhoChange('data', e.target.value)
+                }
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>
+                Data prevista
+              </label>
+              <input
+                type="date"
+                value={cabecalho.dataPrevista}
+                onChange={(e) =>
+                  handleCabecalhoChange('dataPrevista', e.target.value)
+                }
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Itens do orçamento */}
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: '8px',
+            padding: '12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            fontSize: '12px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginBottom: '8px',
+              alignItems: 'center',
+            }}
+          >
+            <h3 style={{ fontSize: '14px', fontWeight: 'bold' }}>
+              Itens do orçamento
+            </h3>
+            <button
+              onClick={adicionarItem}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#16a34a',
+                color: '#ffffff',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              + Adicionar item
+            </button>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                minWidth: '900px',
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#f3f4f6' }}>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    #
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Descrição
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Código
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Qtde
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Preço
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Desconto
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Valor unitário
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Valor total
+                  </th>
+                  <th style={{ padding: '6px', border: '1px solid #e5e7eb' }}>
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.map((it, idx) => (
+                  <tr key={it.id}>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {idx + 1}
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                      }}
+                    >
+                      <input
+                        type="text"
+                        list="listaProdutosOrcamento"
+                        value={it.descricao}
+                        onChange={(e) =>
+                          handleItemChange(it.id, 'descricao', e.target.value)
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={it.codProduto}
+                        onChange={(e) =>
+                          handleItemChange(it.id, 'codProduto', e.target.value)
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          textAlign: 'center',
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                      }}
+                    >
+                      <input
+                        type="number"
+                        min="1"
+                        value={it.qtde}
+                        onChange={(e) =>
+                          handleItemChange(it.id, 'qtde', e.target.value)
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          textAlign: 'right',
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                      }}
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={it.preco}
+                        onChange={(e) =>
+                          handleItemChange(it.id, 'preco', e.target.value)
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          textAlign: 'right',
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                      }}
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={it.desconto}
+                        onChange={(e) =>
+                          handleItemChange(it.id, 'desconto', e.target.value)
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          textAlign: 'right',
+                        }}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {formatarReal(it.valorUnitario || 0)}
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {formatarReal(it.valorTotal || 0)}
+                    </td>
+                    <td
+                      style={{
+                        padding: '4px 6px',
+                        border: '1px solid #f3f4f6',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => removerItem(it.id)}
+                        style={{
+                          padding: '2px 6px',
+                          fontSize: '11px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          backgroundColor: '#dc2626',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Remover
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* datalist de produtos (para descrição) */}
+            <datalist id="listaProdutosOrcamento">
+              {produtos.map((p) => (
+                <option key={p.codProduto} value={p.nome}>
+                  {p.codProduto}
+                </option>
+              ))}
+            </datalist>
+          </div>
+
+          <div
+            style={{
+              marginTop: '12px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '13px',
+            }}
+          >
+            <div>
+              <span style={{ fontWeight: 'bold' }}>Total do orçamento: </span>
+              <span>{formatarReal(totalOrcamento)}</span>
+            </div>
+            <button
+              onClick={gerarPDF}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#111827',
+                color: '#ffffff',
+                fontSize: '13px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              Gerar Orçamento (PDF)
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ========================================================================
   // TELA DE PROMISSÓRIAS
   // ========================================================================
@@ -4994,7 +5729,7 @@ const TelaPagamentoPromissorias = () => {
 
   let conteudo = null;
 
-  if (telaAtiva === 'dashboard') {
+   if (telaAtiva === 'dashboard') {
     conteudo = <TelaDashboard />;
   } else if (telaAtiva === 'vendedor') {
     conteudo = <TelaVendedor />;
@@ -5004,6 +5739,8 @@ const TelaPagamentoPromissorias = () => {
     conteudo = <TelaInventario />;
   } else if (telaAtiva === 'produtos') {
     conteudo = <TelaProdutos />;
+  } else if (telaAtiva === 'orcamento') {
+    conteudo = <TelaOrcamento />;
   } else if (telaAtiva === 'promissorias') {
     conteudo = <TelaPromissorias />;
   } else if (telaAtiva === 'pagamentoPromissorias') {
