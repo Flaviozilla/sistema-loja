@@ -38,12 +38,37 @@ const formatarReal = (valor) => {
   });
 };
 
-const formatarDataBR = (dataISO) => {
-  if (!dataISO) return '';
-  const d = new Date(dataISO);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('pt-BR');
+const formatarDataBR = (valor) => {
+  if (!valor) return '';
+
+  const pad2 = (n) => (n < 10 ? '0' : '') + n;
+
+  // Se vier string no formato AAAA-MM-DD (Supabase)
+  if (typeof valor === 'string') {
+    const s = valor.slice(0, 10);
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [ano, mes, dia] = s.split('-');
+      return `${dia}/${mes}/${ano}`; // sem fuso, sem Date()
+    }
+
+    // Já em formato brasileiro
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      return s;
+    }
+  }
+
+  // Último recurso: tenta converter como Date
+  const dt = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(dt.getTime())) return '';
+
+  const dia = pad2(dt.getDate());
+  const mes = pad2(dt.getMonth() + 1);
+  const ano = dt.getFullYear();
+
+  return `${dia}/${mes}/${ano}`;
 };
+
 
 // ========================================================================
 // VALORES PADRÃO / LOCALSTORAGE (USUÁRIOS LOCAIS – APENAS BACKUP)
@@ -229,7 +254,7 @@ const SistemaLoja = () => {
         .from('lancamentos')
         .select('*')
         .order('data', { ascending: true })
-        .order('id_lancament', { ascending: true });
+        .order('id_lancamento', { ascending: true });
 
       if (error) {
         console.error('Erro ao carregar lançamentos:', error);
@@ -1549,10 +1574,13 @@ const TelaVendedor = () => {
   const LOGO_EMPRESA_URL = '/logo-loja.png';
 
    // ======================================================================
-  // TELA HISTÓRICO (com Nr Venda, Forma, Valor Final e Estorno com estoque)
+  // TELA HISTÓRICO (com Nr Venda, Forma, Valor Final e Estorno)
   // ======================================================================
 
   const TelaHistorico = () => {
+    // Marcações de linhas para estorno
+    const [marcados, setMarcados] = useState({});
+
     // Garante que sempre temos o valor final, independente do nome do campo
     const pegarValorFinal = (l) => {
       if (l.valorLiq != null) return Number(l.valorLiq);
@@ -1570,744 +1598,307 @@ const TelaVendedor = () => {
 
     const pegarForma = (l) => l.forma || '';
 
-    // -----------------------------
-    // HISTÓRICO PERSISTENTE
-    // -----------------------------
-    const [historico, setHistorico] = useState(() => {
-      try {
-        const salvo = localStorage.getItem('historicoLancamentos');
-        if (salvo) {
-          return JSON.parse(salvo);
-        }
-      } catch (e) {
-        console.error('Erro ao ler histórico do localStorage:', e);
-      }
-      // Se não houver nada salvo ainda, usa os lançamentos atuais (se existirem)
-      return Array.isArray(lancamentos) ? lancamentos : [];
-    });
-
-    // Sempre que o histórico mudar, salva no localStorage
-    useEffect(() => {
-      try {
-        localStorage.setItem('historicoLancamentos', JSON.stringify(historico));
-      } catch (e) {
-        console.error('Erro ao salvar histórico no localStorage:', e);
-      }
-    }, [historico]);
-
-    // Se "lancamentos" externo tiver dados (por ex. carregados do Supabase),
-    // atualiza o histórico com eles. Evita sobrescrever com array vazio.
-    useEffect(() => {
-      if (Array.isArray(lancamentos) && lancamentos.length > 0) {
-        setHistorico(lancamentos);
-      }
-    }, [lancamentos]);
-
-    // -----------------------------
-    // FILTROS
-    // -----------------------------
-    const [filtroDataInicio, setFiltroDataInicio] = useState('');
-    const [filtroDataFim, setFiltroDataFim] = useState('');
-    const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
-
-    // Seleção de linhas (por índice da lista filtrada)
-    const [selecionados, setSelecionados] = useState({}); // { idxFiltrado: true/false }
-
-    const normalizarData = (valor) => {
-      if (!valor) return '';
-      const pad2 = (n) => (n < 10 ? '0' : '') + n;
-
-      // Se for Date
-      if (valor instanceof Date) {
-        const a = valor.getFullYear();
-        const m = pad2(valor.getMonth() + 1);
-        const d = pad2(valor.getDate());
-        return `${a}-${m}-${d}`;
-      }
-
-      // Se for string
-      if (typeof valor === 'string') {
-        const s = valor.trim();
-
-        // Já em formato AAAA-MM-DD ou AAAA-MM-DDTHH:mm...
-        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-          return s.substring(0, 10);
-        }
-
-        // Formato brasileiro DD/MM/AAAA
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
-          const [d, m, a] = s.split('/');
-          return `${a}-${m}-${d}`;
-        }
-
-        // Tenta converter via Date
-        const dt = new Date(s);
-        if (!Number.isNaN(dt.getTime())) {
-          const a = dt.getFullYear();
-          const m = pad2(dt.getMonth() + 1);
-          const d = pad2(dt.getDate());
-          return `${a}-${m}-${d}`;
-        }
-
-        return '';
-      }
-
-      // Último recurso, tenta converter
-      const dt = new Date(valor);
-      if (!Number.isNaN(dt.getTime())) {
-        const a = dt.getFullYear();
-        const m = pad2(dt.getMonth() + 1);
-        const d = pad2(dt.getDate());
-        return `${a}-${m}-${d}`;
-      }
-
-      return '';
+    const pegarQuantidade = (l) => {
+      if (l.qtde != null) return Number(l.qtde);
+      if (l.qtd != null) return Number(l.qtd);
+      if (l.quantidade != null) return Number(l.quantidade);
+      return 0;
     };
 
-    const historicoFiltrado = (historico || []).filter((l) => {
-      const dataNormalizada = normalizarData(l.data);
-
-      if (
-        filtroDataInicio &&
-        dataNormalizada &&
-        dataNormalizada < filtroDataInicio
-      ) {
-        return false;
-      }
-      if (
-        filtroDataFim &&
-        dataNormalizada &&
-        dataNormalizada > filtroDataFim
-      ) {
-        return false;
-      }
-
-      if (filtroFormaPagamento && filtroFormaPagamento !== 'TODOS') {
-        const forma = (pegarForma(l) || '').toUpperCase();
-        if (forma !== filtroFormaPagamento.toUpperCase()) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    // -----------------------------
-    // FUNÇÃO: aplicar movimento no estoque a partir de 1 lançamento
-    // -----------------------------
-    const aplicarMovimentoEstoquePorLancamento = async (lanc) => {
-      const qtde = Number(lanc.qtde || 0);
-      if (!qtde) return;
-
-      const tipo = (lanc.tipo || '').toUpperCase();
-      const forma = (lanc.forma || '').toUpperCase();
-
-      // Regras:
-      // - VENDA ou qualquer forma de venda => mexe LOJA (saida)
-      // - COMPRA => mexe DEPÓSITO (entrada)
-      // - TRANSFERENCIA => tira DEPÓSITO, coloca LOJA
-      const formasVenda = [
-        'PIX',
-        'DINHEIRO',
-        'DEBITO',
-        'DÉBITO',
-        'CREDITO',
-        'CRÉDITO',
-        'PROMISSORIA',
-        'PROMISSÓRIA',
-        'CARTAO',
-        'CARTÃO',
-      ];
-
-      const ehVenda =
-        tipo === 'VENDA' || formasVenda.includes(forma);
-
-      const ehCompra =
-        tipo === 'COMPRA' || forma === 'COMPRA';
-
-      const ehTransferencia =
-        tipo === 'TRANSFERENCIA' || forma === 'TRANSFERENCIA';
-
-      if (!ehVenda && !ehCompra && !ehTransferencia) {
-        // lançamento que não afeta estoque
-        return;
-      }
-
-      const cod = lanc.cod_produto || lanc.codProduto;
-      if (!cod) return;
-
-      const dataEntrada =
-        normalizarData(lanc.data) || new Date().toISOString().slice(0, 10);
-
-      const fornecedor = limparFornecedorTexto(lanc.fornecedor || '');
-      const produtoNome = lanc.produto || '';
-
-      const movimentos = [];
-
-      if (ehVenda) {
-        // VENDA: saída da LOJA = -qtde
-        movimentos.push({
-          cod_produto: cod,
-          produto: produtoNome,
-          fornecedor,
-          local: 'LOJA',
-          qtde: -qtde,
-          data_entrada: dataEntrada,
-        });
-      }
-
-      if (ehCompra) {
-        // COMPRA: entrada no DEPÓSITO = +qtde
-        movimentos.push({
-          cod_produto: cod,
-          produto: produtoNome,
-          fornecedor,
-          local: 'DEPOSITO',
-          qtde: qtde,
-          data_entrada: dataEntrada,
-        });
-      }
-
-      if (ehTransferencia) {
-        // TRANSFERÊNCIA: tira do DEPÓSITO e coloca na LOJA
-        movimentos.push({
-          cod_produto: cod,
-          produto: produtoNome,
-          fornecedor,
-          local: 'DEPOSITO',
-          qtde: -qtde,
-          data_entrada: dataEntrada,
-        });
-        movimentos.push({
-          cod_produto: cod,
-          produto: produtoNome,
-          fornecedor,
-          local: 'LOJA',
-          qtde: qtde,
-          data_entrada: dataEntrada,
-        });
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('estoque')
-          .insert(movimentos)
-          .select(
-            'id, cod_produto, produto, fornecedor, local, qtde, data_entrada',
-          );
-
-        if (error) {
-          console.error(
-            'Erro ao registrar movimento de estoque (histórico):',
-            error,
-          );
-          // Mesmo com erro na nuvem, atualiza estado local com ids fake
-          setEstoque((lista) => [
-            ...lista,
-            ...movimentos.map((m) => ({
-              id: Date.now() + Math.random(),
-              ...m,
-            })),
-          ]);
-        } else {
-          setEstoque((lista) => [...lista, ...(data || [])]);
-        }
-      } catch (e) {
-        console.error(
-          'Erro inesperado ao registrar movimento de estoque (histórico):',
-          e,
-        );
-        setEstoque((lista) => [
-          ...lista,
-          ...movimentos.map((m) => ({
-            id: Date.now() + Math.random(),
-            ...m,
-          })),
-        ]);
-      }
+    const pegarId = (l) => {
+      if (l.id_lancamento != null) return l.id_lancamento;
+      if (l.id_lanca != null) return l.id_lanca;
+      if (l.id != null) return l.id;
+      return String(Math.random());
     };
 
-    // -----------------------------
-    // DOWNLOAD CSV (Excel)
-    // -----------------------------
-    const baixarHistoricoCSV = () => {
-      if (!historicoFiltrado.length) {
-        alert('Não há dados no histórico com os filtros atuais.');
-        return;
-      }
-
-      const colunas = [
-        'Data',
-        'Tipo',
-        'Nr Venda',
-        'Forma Pgto',
-        'Produto',
-        'Qtde',
-        'Valor Final da Venda',
-      ];
-
-      const linhas = historicoFiltrado.map((l) => [
-        normalizarData(l.data),
-        l.tipo || '',
-        pegarNrVenda(l),
-        pegarForma(l),
-        l.produto || '',
-        l.qtde != null ? l.qtde : '',
-        pegarValorFinal(l).toString().replace('.', ','), // separador decimal BR
-      ]);
-
-      const tudo = [colunas, ...linhas]
-        .map((linha) =>
-          linha
-            .map((campo) => {
-              const s = String(campo ?? '');
-              if (s.includes(';') || s.includes('"') || s.includes('\n')) {
-                return `"${s.replace(/"/g, '""')}"`;
-              }
-              return s;
-            })
-            .join(';'),
-        )
-        .join('\n');
-
-      const blob = new Blob([tudo], { type: 'text/csv;charset=utf-8;' });
-
-      const hoje = new Date();
-      const pad2 = (n) => (n < 10 ? '0' : '') + n;
-      const nomeArquivo = `historico_lancamentos_${hoje.getFullYear()}-${pad2(
-        hoje.getMonth() + 1,
-      )}-${pad2(hoje.getDate())}.csv`;
-
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = nomeArquivo;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    };
-
-    // -----------------------------
-    // LIMPAR HISTÓRICO (apenas ADM/GER)
-    // -----------------------------
-    const limparHistorico = () => {
-      const ok = window.confirm(
-        'Tem certeza que deseja apagar todo o histórico salvo? Essa ação não pode ser desfeita.',
-      );
-      if (!ok) return;
-
-      setHistorico([]);
-      setSelecionados({});
-      try {
-        localStorage.removeItem('historicoLancamentos');
-      } catch (e) {
-        console.error('Erro ao limpar histórico do localStorage:', e);
-      }
-    };
-
-    // -----------------------------
-    // ESTORNAR SELECIONADOS (HISTÓRICO + ESTOQUE)
-    // -----------------------------
-    const estornarSelecionados = async () => {
-      const novosRegistros = [];
-
-      historicoFiltrado.forEach((l, idxFiltrado) => {
-        if (!selecionados[idxFiltrado]) return;
-
-        // não permite estornar estorno nem linha já estornada
-        if ((l.tipo || '').toUpperCase() === 'ESTORNO' || l.estornado) {
-          return;
-        }
-
-        const valorFinal = pegarValorFinal(l);
-        const qtdeOriginal =
-          l.qtde != null ? Number(l.qtde) : null;
-
-        const novo = { ...l };
-
-        // marca tipo estorno
-        novo.tipo = 'ESTORNO';
-
-        // quantidade negativa (inverte)
-        if (qtdeOriginal != null && !Number.isNaN(qtdeOriginal)) {
-          novo.qtde = -qtdeOriginal;
-        }
-
-        // inverte o valor final da venda, respeitando o campo que existir
-        if (l.valorLiq != null) {
-          novo.valorLiq = -Number(l.valorLiq || 0);
-        } else if (l.valor_liq != null) {
-          novo.valor_liq = -Number(l.valor_liq || 0);
-        } else if (l.valorBruto != null) {
-          novo.valorBruto = -Number(l.valorBruto || 0);
-        } else if (l.valor_bruto != null) {
-          novo.valor_bruto = -Number(l.valor_bruto || 0);
-        } else if (!Number.isNaN(valorFinal)) {
-          novo.valorLiq = -valorFinal;
-        }
-
-        // marca a linha ORIGINAL como já estornada (para esconder checkbox)
-        l.estornado = true;
-
-        novosRegistros.push(novo);
-      });
-
-      if (!novosRegistros.length) {
-        alert('Nenhuma linha válida selecionada para estorno.');
-        return;
-      }
-
-      // Aplica os movimentos de estoque para cada estorno novo
-      for (const novoLanc of novosRegistros) {
-        await aplicarMovimentoEstoquePorLancamento(novoLanc);
-      }
-
-      // Atualiza histórico (adiciona estornos ao final)
-      setHistorico((lista) => [...lista, ...novosRegistros]);
-      setSelecionados({});
-      alert('Estorno lançado no histórico e estoque atualizado.');
-    };
-
-    const toggleSelecionado = (idxFiltrado) => {
-      setSelecionados((prev) => ({
+    const toggleMarcado = (lanc) => {
+      const id = pegarId(lanc);
+      setMarcados((prev) => ({
         ...prev,
-        [idxFiltrado]: !prev[idxFiltrado],
+        [id]: !prev[id],
       }));
     };
 
-    // -----------------------------
-    // EXPORTAR PDF 1 (impressão)
-    // -----------------------------
-    const ExportarPDF1 = () => {
-      if (!historicoFiltrado.length) {
-        alert('Não há dados para exportar com os filtros atuais.');
+    const limparMarcados = () => setMarcados({});
+
+    const handleEstornoSelecionados = async () => {
+      const selecionados = lancamentos.filter((l) => {
+        const id = pegarId(l);
+        return marcados[id];
+      });
+
+      if (!selecionados.length) {
+        alert('Selecione ao menos um lançamento para estornar.');
         return;
       }
 
-      const novaJanela = window.open('', '_blank');
-
-      const titulo = 'Histórico de Lançamentos';
-
-      const htmlCabecalho = `
-        <html>
-          <head>
-            <meta charset="utf-8" />
-            <title>${titulo}</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 16px; }
-              h1 { text-align: center; margin: 8px 0 16px 0; }
-              .logo-container { text-align: center; margin-bottom: 8px; }
-              .logo-container img { max-height: 80px; }
-              .filtros-info { font-size: 12px; margin-bottom: 16px; }
-              table { width: 100%; border-collapse: collapse; font-size: 11px; }
-              th, td { border: 1px solid #000; padding: 4px; text-align: center; }
-              th { background-color: #eee; }
-            </style>
-          </head>
-          <body>
-            <div class="logo-container">
-              <img src="${LOGO_EMPRESA_URL}" alt="Logo da Empresa" />
-            </div>
-            <h1>${titulo}</h1>
-            <div class="filtros-info">
-              <div><strong>Período:</strong> ${
-                filtroDataInicio || 'Início'
-              } até ${filtroDataFim || 'Fim'}</div>
-              <div><strong>Forma de Pagamento:</strong> ${
-                filtroFormaPagamento || 'Todos'
-              }</div>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Tipo</th>
-                  <th>Nr Venda</th>
-                  <th>Forma Pgto</th>
-                  <th>Produto</th>
-                  <th>Qtde</th>
-                  <th>Valor Final da Venda</th>
-                </tr>
-              </thead>
-              <tbody>
-      `;
-
-      const linhasHtml = historicoFiltrado
-        .map(
-          (l) => `
-          <tr>
-            <td>${formatarDataBR(l.data)}</td>
-            <td>${l.tipo || ''}</td>
-            <td>${pegarNrVenda(l)}</td>
-            <td>${pegarForma(l)}</td>
-            <td>${l.produto || ''}</td>
-            <td>${l.qtde != null ? l.qtde : ''}</td>
-            <td>${formatarReal(pegarValorFinal(l))}</td>
-          </tr>
-        `,
+      if (
+        !window.confirm(
+          `Confirmar estorno de ${selecionados.length} lançamento(s)?`
         )
-        .join('');
+      ) {
+        return;
+      }
 
-      const htmlRodape = `
-              </tbody>
-            </table>
-          </body>
-        </html>
-      `;
+      try {
+        // Monta os registros de estorno invertendo os valores numéricos
+        const hoje = new Date();
+        const dataHoje =
+          hoje.getFullYear() +
+          '-' +
+          String(hoje.getMonth() + 1).padStart(2, '0') +
+          '-' +
+          String(hoje.getDate()).padStart(2, '0');
 
-      novaJanela.document.write(htmlCabecalho + linhasHtml + htmlRodape);
-      novaJanela.document.close();
-      novaJanela.focus();
-      novaJanela.print();
-      // novaJanela.close(); // se quiser fechar automaticamente
+        const registrosEstorno = selecionados.map((l) => {
+          const qtd = Math.abs(pegarQuantidade(l));
+          const valorBrutoOrig =
+            l.valor_bruto != null
+              ? Number(l.valor_bruto)
+              : l.valorBruto != null
+              ? Number(l.valorBruto)
+              : pegarValorFinal(l);
+          const descontoOrig =
+            l.desconto != null
+              ? Number(l.desconto)
+              : l.desc != null
+              ? Number(l.desc)
+              : 0;
+          const jurosOrig = l.juros != null ? Number(l.juros) : 0;
+          const valorLiqOrig = pegarValorFinal(l);
+
+          const tipoOrig = (l.tipo || '').toString().toUpperCase();
+          const tipoEstorno = tipoOrig.includes('_ESTORNO')
+            ? tipoOrig
+            : `${tipoOrig}_ESTORNO`;
+
+          return {
+            dados: dataHoje, // coluna de data na sua tabela
+            tipo: tipoEstorno,
+            cod_produto: l.cod_produto ?? l.codProduto ?? null,
+            produto: l.produto ?? null,
+            fornecedor: l.fornecedor ?? null,
+            qtde: -qtd,
+            valor_bruto: -Math.abs(valorBrutoOrig),
+            desconto: descontoOrig, // mantido (se quiser pode inverter tbm)
+            juros: jurosOrig, // mantido
+            valor_liq: -Math.abs(valorLiqOrig),
+            nr_venda: l.nr_venda ?? l.nrVenda ?? null,
+            forma: l.forma ?? null,
+          };
+        });
+
+        const { error } = await supabase
+          .from('lancamentos')
+          .insert(registrosEstorno);
+
+        if (error) {
+          console.error('Erro ao estornar lançamentos:', error);
+          alert('Erro ao estornar lançamentos. Veja o console para detalhes.');
+          return;
+        }
+
+        limparMarcados();
+        // Recarrega lançamentos para refletir os estornos na tela
+        await carregarLancamentos();
+      } catch (err) {
+        console.error('Erro inesperado ao estornar lançamentos:', err);
+        alert('Erro inesperado ao estornar lançamentos.');
+      }
     };
 
-    // -----------------------------
-    // RENDER
-    // -----------------------------
+    const temMarcado = Object.values(marcados).some((v) => v);
+
     return (
       <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>
+        <h2
+          style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            marginBottom: '8px',
+          }}
+        >
           Histórico de Lançamentos
         </h2>
 
-        {/* Filtros */}
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '8px',
-            marginBottom: '8px',
-            fontSize: '11px',
-          }}
-        >
-          <div>
-            <label>
-              Data início:{' '}
-              <input
-                type="date"
-                value={filtroDataInicio}
-                onChange={(e) => setFiltroDataInicio(e.target.value)}
-                style={{ fontSize: '11px' }}
-              />
-            </label>
-          </div>
-          <div>
-            <label>
-              Data fim:{' '}
-              <input
-                type="date"
-                value={filtroDataFim}
-                onChange={(e) => setFiltroDataFim(e.target.value)}
-                style={{ fontSize: '11px' }}
-              />
-            </label>
-          </div>
-          <div>
-            <label>
-              Forma de Pagamento:{' '}
-              <select
-                value={filtroFormaPagamento}
-                onChange={(e) => setFiltroFormaPagamento(e.target.value)}
-                style={{ fontSize: '11px' }}
-              >
-                <option value="">(sem filtro)</option>
-                <option value="TODOS">Todos</option>
-                <option value="DINHEIRO">Dinheiro</option>
-                <option value="PIX">PIX</option>
-                <option value="CARTAO">Cartão</option>
-                <option value="CREDITO">Crédito</option>
-                <option value="DEBITO">Débito</option>
-                <option value="PROMISSORIA">Promissória</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        {/* Botões de ação */}
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '8px',
-            marginBottom: '8px',
-            fontSize: '11px',
-          }}
-        >
+        {/* Botão de estorno */}
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
           <button
-            onClick={ExportarPDF1}
-            style={{ fontSize: '11px', padding: '4px 8px' }}
-          >
-            ExportarPDF1
-          </button>
-          <button
-            onClick={baixarHistoricoCSV}
-            style={{ fontSize: '11px', padding: '4px 8px' }}
-          >
-            Baixar Histórico (CSV/Excel)
-          </button>
-
-          <button
-            onClick={estornarSelecionados}
+            onClick={handleEstornoSelecionados}
+            disabled={!temMarcado}
             style={{
-              fontSize: '11px',
-              padding: '4px 8px',
-              background: '#b91c1c',
-              color: '#fff',
-              borderRadius: 4,
+              padding: '6px 12px',
+              borderRadius: '4px',
               border: 'none',
+              cursor: temMarcado ? 'pointer' : 'not-allowed',
+              backgroundColor: temMarcado ? '#b91c1c' : '#e5e7eb',
+              color: temMarcado ? '#fff' : '#6b7280',
+              fontWeight: '600',
             }}
           >
-            Estornar Selecionados (estoque)
+            Estornar selecionados
           </button>
-
-          {(perfil === 'ADM' || perfil === 'GER') && (
-            <button
-              onClick={limparHistorico}
-              style={{ fontSize: '11px', padding: '4px 8px', marginLeft: 'auto' }}
-            >
-              Limpar Histórico Salvo
-            </button>
-          )}
         </div>
 
-        {/* Tabela */}
-        <div
-          style={{
-            background: '#ffffff',
-            borderRadius: '8px',
-            padding: '12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          }}
-        >
-          <div style={{ overflowX: 'auto', fontSize: '11px' }}>
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                textAlign: 'center',
-              }}
-            >
-              <thead>
-                <tr style={{ background: '#f3f4f6' }}>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Sel.
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Data
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Tipo
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Nr Venda
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Forma Pgto
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Produto
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Qtde
-                  </th>
-                  <th style={{ padding: '6px', borderBottom: '1px solid #e5e7eb' }}>
-                    Valor Final da Venda
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {historicoFiltrado.map((l, idx) => {
-                  const jaEstornado =
-                    (l.tipo || '').toUpperCase() === 'ESTORNO' || l.estornado;
+        <div style={{ overflowX: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '12px',
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  {/* Coluna do checkbox */}
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Data
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Tipo
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Cód. Produto
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Produto
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Qtde
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Valor Final
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Nr Venda
+                </th>
+                <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+                  Forma
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {lancamentos.map((l) => {
+                const id = pegarId(l);
+                const selecionado = !!marcados[id];
+                const valorFinal = pegarValorFinal(l);
+                const qtd = pegarQuantidade(l);
+                const nrVenda = pegarNrVenda(l);
+                const forma = pegarForma(l);
 
-                  return (
-                    <tr key={idx}>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {jaEstornado ? (
-                          <span style={{ fontSize: '9px', color: '#9ca3af' }}>
-                            —
-                          </span>
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={!!selecionados[idx]}
-                            onChange={() => toggleSelecionado(idx)}
-                          />
-                        )}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {formatarDataBR(l.data)}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {l.tipo}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {pegarNrVenda(l)}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {pegarForma(l)}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {l.produto}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {l.qtde}
-                      </td>
-                      <td
-                        style={{
-                          padding: '4px 6px',
-                          borderBottom: '1px solid #f3f4f6',
-                        }}
-                      >
-                        {formatarReal(pegarValorFinal(l))}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {historicoFiltrado.length === 0 && (
-                  <tr>
-                    <td colSpan={8} style={{ padding: '8px', fontSize: '11px' }}>
-                      Nenhum lançamento registrado (com os filtros atuais).
+                const ehEstorno =
+                  (l.tipo || '').toString().toUpperCase().includes('ESTORNO');
+
+                return (
+                  <tr
+                    key={id}
+                    style={{
+                      backgroundColor: ehEstorno ? '#fef2f2' : 'transparent',
+                    }}
+                  >
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selecionado}
+                        disabled={ehEstorno} // não marcar linha que já é estorno
+                        onChange={() => toggleMarcado(l)}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {l.dados || l.data || ''}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {l.tipo}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {l.cod_produto || l.codProduto || ''}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                      }}
+                    >
+                      {l.produto || ''}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {qtd.toLocaleString('pt-BR')}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {valorFinal.toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {nrVenda}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        padding: '4px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {forma}
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+              {lancamentos.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: '8px', textAlign: 'center' }}>
+                    Nenhum lançamento encontrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     );
