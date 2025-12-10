@@ -282,12 +282,16 @@ const SistemaLoja = () => {
       if (!data) return;
 
       setPromissorias(
-        data.map((p) => ({
-          ...p,
-          parcelasAtrasadas: p.parcelas_atra || p.parcelas_atra || 0,
-          selecionado: p.selecionado ?? false,
-        })),
-      );
+  data.map((p) => ({
+    ...p,
+    parcelasAtrasadas:
+      p.parcelas_atrasadas ??  // nome novo
+      p.parcelas_atra ??       // compatível com dados antigos, se ainda houver
+      0,
+    selecionado: p.selecionado ?? false,
+  })),
+);
+
     } catch (e) {
       console.error('Erro inesperado ao carregar promissórias:', e);
     }
@@ -998,7 +1002,7 @@ const TelaVendedor = () => {
       );
       if (!confirma) return;
     }
-
+    
     const valorUnitario = Number(prod.valorUnitario || 0);
     const qtde = Number(novaVenda.qtde || 0);
     const valorBruto = valorUnitario * qtde;
@@ -1078,67 +1082,13 @@ const TelaVendedor = () => {
     setEstoque((lista) => [...lista, movimentoInserido]);
 
     // 3) Se for promissória, salva também em promissórias
-    if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
-      const promBase = {
-        nrVenda: lancVenda.nrVenda,
-        cliente: lancVenda.cliente,
-        email: lancVenda.email,
-        valor: lancVenda.valorLiq,
-        dataInicio: lancVenda.inicioPagamento || lancVenda.data,
-        parcelas: lancVenda.parcelas || 1,
-        parcelasAtrasadas: 0,
-        status: 'ABERTO',
-        selecionado: false,
-      };
-
-      try {
-        const { data: promDb, error: promError } = await supabase
-          .from('promissorias')
-          .insert({
-            nr_venda: promBase.nrVenda,
-            cliente: promBase.cliente,
-            email: promBase.email,
-            valor: promBase.valor,
-            data_inicio: promBase.dataInicio,
-            parcelas: promBase.parcelas,
-            parcelas_atra: promBase.parcelasAtrasadas,
-            status: promBase.status,
-            selecionado: promBase.selecionado,
-          })
-          .select(
-            'id, nr_venda, cliente, email, valor, data_inicio, parcelas, parcelas_atra, status, selecionado',
-          )
-          .single();
-
-        if (promError) {
-          console.error('Erro ao salvar promissória no Supabase:', promError);
-          setPromissorias((lista) => [...lista, promBase]);
-        } else {
-          const novaProm = {
-            id: promDb.id,
-            nrVenda: promDb.nr_venda,
-            cliente: promDb.cliente,
-            email: promDb.email,
-            valor: Number(promDb.valor || 0),
-            dataInicio: promDb.data_inicio,
-            parcelas: promDb.parcelas || 0,
-            parcelasAtrasadas: promDb.parcelas_atra || 0,
-            status: promDb.status || 'ABERTO',
-            selecionado: !!promDb.selecionado,
-          };
-          setPromissorias((lista) => [...lista, novaProm]);
-        }
-      } catch (e) {
-        console.error('Erro inesperado ao salvar promissória:', e);
-        setPromissorias((lista) => [...lista, promBase]);
-      }
-    }
-
-       // 4) Gerar número sequencial da venda no dia e salvar no Supabase (tabela lançamentos)
+     // 3) Gerar número sequencial da venda no dia (para HISTÓRICO)
+    //    e a CHAVE ÚNICA (data + nr_venda) para PROMISSÓRIAS / PAGAMENTOS
+    let nrVendaNumero = 1;      // 1,2,3,... no dia
+    let nrVendaChave = '';      // AAAAMMDD-<nrVendaNumero>, ex: 20251209-8
+ 
+    // 4) Se for promissória, salva também em promissórias
     try {
-      // 4.1 Descobre o próximo nr_venda para esta data
-      let nrVendaNumero = 1;
-
       if (lancVenda.data) {
         const { data: vendasExistentes, error: erroBusca } = await supabase
           .from('lancamentos')
@@ -1156,8 +1106,96 @@ const TelaVendedor = () => {
             nrVendaNumero = ultimo + 1;
           }
         }
-      }
 
+        // monta AAAAMMDD-SEQ
+        const dataLimpa = String(lancVenda.data).replace(/-/g, ''); // 20251209
+        if (dataLimpa) {
+          nrVendaChave = `${dataLimpa}-${nrVendaNumero}`;
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao gerar sequência de nr_venda:', e);
+    }
+
+    // fallback se por algum motivo não montou a chave
+    if (!nrVendaChave) {
+      const dataLimpa = lancVenda.data
+        ? String(lancVenda.data).replace(/-/g, '')
+        : '';
+      nrVendaChave = `${dataLimpa || '00000000'}-${nrVendaNumero}`;
+    }
+
+       // 4) Se for promissória, salva também em promissórias
+    //    usando a CHAVE AAAAMMDD-SEQ em nr_venda
+    if ((lancVenda.forma || '').toUpperCase() === 'PROMISSORIA') {
+      const promBase = {
+        nrVenda: nrVendaChave, // <-- aqui já vem 20251209-8, por exemplo
+        cliente: lancVenda.cliente,
+        email: lancVenda.email,
+        valor: lancVenda.valorLiq,
+        dataInicio: lancVenda.inicioPagamento || lancVenda.data,
+        parcelas: lancVenda.parcelas || 1,
+        parcelasAtrasadas: 0,            // começamos em 0, será recalculado na tela
+        status: 'ABERTO',
+        selecionado: false,
+        saldo_devedor: lancVenda.valorLiq, // saldo inicial = valor da venda
+      };
+
+      try {
+        const { data: promDb, error: promError } = await supabase
+          .from('promissorias')
+          .insert({
+            nr_venda: promBase.nrVenda,       // AAAAMMDD-SEQ
+            cliente: promBase.cliente,
+            email: promBase.email,
+            valor: promBase.valor,
+            data_inicio: promBase.dataInicio,
+            parcelas: promBase.parcelas,
+            // ❌ NÃO usamos mais parcelas_atra (coluna apagada)
+            status: promBase.status,
+            selecionado: promBase.selecionado,
+            saldo_devedor: promBase.saldo_devedor,
+            total_em_aberto: promBase.saldo_devedor,
+          })
+          .select(
+            'id, nr_venda, cliente, email, valor, data_inicio, parcelas, status, selecionado, saldo_devedor, total_em_aberto',
+          )
+          .single();
+
+        if (promError) {
+          console.error('Erro ao salvar promissória no Supabase:', promError);
+          // se der erro de Supabase, ainda mantém local
+          setPromissorias((lista) => [...lista, promBase]);
+        } else {
+          const novaProm = {
+            id: promDb.id,
+            nrVenda: promDb.nr_venda, // AAAAMMDD-SEQ
+            cliente: promDb.cliente,
+            email: promDb.email,
+            valor: Number(promDb.valor || 0),
+            dataInicio: promDb.data_inicio,
+            parcelas: promDb.parcelas || 0,
+            parcelasAtrasadas: 0, // será recalculado na tela
+            status: promDb.status || 'ABERTO',
+            selecionado: !!promDb.selecionado,
+            saldo_devedor: Number(
+              promDb.saldo_devedor ??
+                promDb.total_em_aberto ??
+                promDb.valor ??
+                0,
+            ),
+          };
+          setPromissorias((lista) => [...lista, novaProm]);
+        }
+      } catch (e) {
+        console.error('Erro inesperado ao salvar promissória:', e);
+        setPromissorias((lista) => [...lista, promBase]);
+      }
+    }
+
+    // 5) Salvar VENDA na tabela "lancamentos"
+    //    usando apenas o sequencial numérico (1,2,3...) em nr_venda
+    try {
       const { error } = await supabase.from('lancamentos').insert({
         data: lancVenda.data,
         tipo: 'VENDA',
@@ -1170,7 +1208,7 @@ const TelaVendedor = () => {
         juros: lancVenda.juros,
         valor_liq: lancVenda.valorLiq,
         forma: lancVenda.forma,
-        nr_venda: nrVendaNumero,
+        nr_venda: nrVendaNumero, // <-- aqui só 8, por exemplo
         local: 'LOJA',
         parcelas:
           (lancVenda.forma || '').toUpperCase() === 'PROMISSORIA'
@@ -1191,7 +1229,7 @@ const TelaVendedor = () => {
         console.error('Erro ao salvar venda no Supabase:', error);
         alert('Venda lançada localmente, mas houve erro ao salvar na nuvem.');
       } else {
-        // Atualiza lista local de lançamentos
+        // Atualiza lista local de lançamentos (HISTÓRICO)
         setLancamentos((lista) => [
           ...lista,
           {
@@ -1674,7 +1712,7 @@ const TelaVendedor = () => {
             : `${tipoOrig}_ESTORNO`;
 
           return {
-            dados: dataHoje, // coluna de data na sua tabela
+            data: dataHoje, // coluna de data na sua tabela
             tipo: tipoEstorno,
             cod_produto: l.cod_produto ?? l.codProduto ?? null,
             produto: l.produto ?? null,
@@ -1820,7 +1858,7 @@ const TelaVendedor = () => {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {l.dados || l.data || ''}
+                      {l.data || ''}
                     </td>
                     <td
                       style={{
@@ -1998,7 +2036,7 @@ const TelaVendedor = () => {
         : filtroLocal === 'DEPOSITO'
         ? 'DEPÓSITO'
         : 'LOJA';
-
+        
     const dataTitulo = filtroData || new Date().toISOString().slice(0, 10);
 
     const imprimirInventario = () => {
@@ -2998,7 +3036,7 @@ const TelaVendedor = () => {
                     }}
                   >
                     Data
-                  </label>
+                                    </label>
                   <input
                     type="date"
                     value={novaCompra.data}
@@ -3998,34 +4036,33 @@ const TelaVendedor = () => {
               }}
             >
               Gerar Orçamento (PDF)
-            </button>
+                          </button>
           </div>
         </div>
       </div>
     );
   };
+// ========================================================================
+// TELA DE PROMISSÓRIAS
+// ========================================================================
+const TelaPromissorias = () => {
+  const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
+  const [enviandoEmails, setEnviandoEmails] = useState(false); // controle do botão "e-mails"
 
-  // ========================================================================
-  // TELA DE PROMISSÓRIAS
-  // ========================================================================
-  const TelaPromissorias = () => {
-    const [mostrarSomenteAtrasadas, setMostrarSomenteAtrasadas] = useState(false);
-    const [enviandoEmails, setEnviandoEmails] = useState(false); // controle do botão "e-mails"
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
 
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
+  // ---------- TEXTO DO E-MAIL / WHATSAPP ----------
+  const montarTextoCobranca = (p) => {
+    const nome = p.cliente || 'cliente';
 
-    // ---------- TEXTO DO E-MAIL / WHATSAPP ----------
-    const montarTextoCobranca = (p) => {
-      const nome = p.cliente || 'cliente';
+    const dt = p.dataInicio ? new Date(p.dataInicio) : new Date();
+    const dia = String(dt.getDate()).padStart(2, '0');
+    const mes = String(dt.getMonth() + 1).padStart(2, '0');
+    const ano = String(dt.getFullYear()).toString().slice(-2);
+    const dataFormatada = `${dia}/${mes}/${ano}`;
 
-      const dt = p.dataInicio ? new Date(p.dataInicio) : new Date();
-      const dia = String(dt.getDate()).padStart(2, '0');
-      const mes = String(dt.getMonth() + 1).padStart(2, '0');
-      const ano = String(dt.getFullYear()).toString().slice(-2);
-      const dataFormatada = `${dia}/${mes}/${ano}`;
-
-      return (
+    return (
 `Bom dia Sr(a) ${nome},
 
 Somos da Equipe Financeira da Wolf Artigos Militares! O motivo do contato é
@@ -4041,462 +4078,496 @@ desconsiderar esta mensagem!
 Atenciosamente,
 Equipe Financeira
 Wolf Artigos Militares`
-      );
-    };
+    );
+  };
 
-    const abrirWhatsapp = (p) => {
-      const telefone = p.telefone || p.whatsapp || '';
-      if (!telefone) return;
+  const abrirWhatsapp = (p) => {
+    const telefone = p.telefone || p.whatsapp || '';
+    if (!telefone) return;
 
-      const texto = montarTextoCobranca(p);
-      const apenasNumeros = String(telefone).replace(/\D/g, '');
-      if (!apenasNumeros) return;
+    const texto = montarTextoCobranca(p);
+    const apenasNumeros = String(telefone).replace(/\D/g, '');
+    if (!apenasNumeros) return;
 
-      // DDI 55 (Brasil)
-      const url = `https://wa.me/55${apenasNumeros}?text=${encodeURIComponent(
-        texto
-      )}`;
-      window.open(url, '_blank');
-    };
+    // DDI 55 (Brasil)
+    const url = `https://wa.me/55${apenasNumeros}?text=${encodeURIComponent(
+      texto
+    )}`;
+    window.open(url, '_blank');
+  };
 
-    const enviarEmailViaApi = async (p) => {
-      const corpo = montarTextoCobranca(p);
-      const assunto = 'Lembrete de pendência - Wolf Artigos Militares';
+  const enviarEmailViaApi = async (p) => {
+    const corpo = montarTextoCobranca(p);
+    const assunto = 'Lembrete de pendência - Wolf Artigos Militares';
 
-      const resp = await fetch('/api/enviar-cobranca', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emailCliente: p.email,
-          assunto,
-          corpo,
-        }),
-      });
-
-      if (!resp.ok) {
-        throw new Error('Falha ao chamar API de e-mail');
-      }
-    };
-
-    const marcarEmailComoEnviado = async (p) => {
-      // atualiza no Supabase (campo email_enviado) e no estado local
-      try {
-        if (p.id) {
-          const { error } = await supabase
-            .from('promissorias')
-            .update({ email_enviado: true })
-            .eq('id', p.id);
-
-          if (error) {
-            console.error('Erro ao marcar email_enviado no banco:', error);
-          }
-        }
-      } catch (e) {
-        console.error('Erro inesperado ao marcar email_enviado:', e);
-      }
-
-      setPromissorias((lista) =>
-        lista.map((item) =>
-          item.id === p.id ? { ...item, email_enviado: true } : item
-        )
-      );
-    };
-
-    // --- Cálculo de parcelas em atraso a partir da data de início ---
-    const calcularParcelasEmAtraso = (p) => {
-      if (!p.dataInicio) return 0;
-      const inicio = new Date(p.dataInicio);
-      inicio.setHours(0, 0, 0, 0);
-
-      // ainda não chegou a primeira parcela
-      if (inicio > hoje) return 0;
-
-      const anoDiff = hoje.getFullYear() - inicio.getFullYear();
-      const mesDiff = hoje.getMonth() - inicio.getMonth();
-      let parcelasVencidas = anoDiff * 12 + mesDiff + 1; // +1 conta o mês inicial
-
-      if (parcelasVencidas < 0) parcelasVencidas = 0;
-      if (p.parcelas && parcelasVencidas > p.parcelas) {
-        parcelasVencidas = p.parcelas;
-      }
-      return parcelasVencidas;
-    };
-
-    // Aplica regras de atraso / status em memória
-    const promissoriasCalculadas = promissorias.map((p) => {
-      const atrasadas = calcularParcelasEmAtraso(p);
-      const saldo = Number(p.valor || 0);
-
-      let statusCalc = p.status || 'ABERTO';
-      if (saldo <= 0) {
-        statusCalc = 'QUITADO';
-      } else if (atrasadas > 0) {
-        statusCalc = 'PENDENTE';
-      } else {
-        statusCalc = 'ABERTO';
-      }
-
-      return {
-        ...p,
-        parcelasAtrasadas: atrasadas,
-        statusCalc,
-      };
+    const resp = await fetch('/api/enviar-cobranca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emailCliente: p.email,
+        assunto,
+        corpo,
+      }),
     });
 
-    // Remove da visualização as já quitadas
-    let listaFiltradaBase = promissoriasCalculadas.filter(
-      (p) => p.statusCalc !== 'QUITADO'
-    );
+    if (!resp.ok) {
+      throw new Error('Falha ao chamar API de e-mail');
+    }
+  };
 
-    // Filtro "somente atrasadas"
-    const listaFiltrada = listaFiltradaBase.filter((p) => {
-      if (!mostrarSomenteAtrasadas) return true;
-      return p.parcelasAtrasadas > 0;
-    });
+  const marcarEmailComoEnviado = async (p) => {
+    // atualiza no Supabase (campo email_enviado) e no estado local
+    try {
+      if (p.id) {
+        const { error } = await supabase
+          .from('promissorias')
+          .update({ email_enviado: true })
+          .eq('id', p.id);
 
-    // Selecionar / desmarcar
-    const toggleSelecao = async (index) => {
-      const prom = promissorias[index];
-      if (!prom) return;
-
-      const novoSelecionado = !prom.selecionado;
-
-      setPromissorias((lista) =>
-        lista.map((p, idx) =>
-          idx === index ? { ...p, selecionado: novoSelecionado } : p
-        )
-      );
-
-      if (prom.id) {
-        try {
-          const { error } = await supabase
-            .from('promissorias')
-            .update({ selecionado: novoSelecionado })
-            .eq('id', prom.id);
-
-          if (error) {
-            console.error('Erro ao atualizar seleção da promissória:', error);
-          }
-        } catch (e) {
-          console.error('Erro inesperado ao atualizar seleção da promissória:', e);
+        if (error) {
+          console.error('Erro ao marcar email_enviado no banco:', error);
         }
       }
+    } catch (e) {
+      console.error('Erro inesperado ao marcar email_enviado:', e);
+    }
+
+    setPromissorias((lista) =>
+      lista.map((item) =>
+        item.id === p.id ? { ...item, email_enviado: true } : item
+      )
+    );
+  };
+
+  // --- Cálculo de parcelas em atraso a partir da data de início ---
+  const calcularParcelasEmAtraso = (p) => {
+    if (!p.dataInicio && !p.data_inicio) return 0;
+
+    const inicio = new Date(p.dataInicio || p.data_inicio);
+    if (isNaN(inicio.getTime())) return 0;
+
+    inicio.setHours(0, 0, 0, 0);
+
+    // ainda não chegou a primeira parcela
+    if (inicio > hoje) return 0;
+
+    const anoDiff = hoje.getFullYear() - inicio.getFullYear();
+    const mesDiff = hoje.getMonth() - inicio.getMonth();
+    let parcelasVencidas = anoDiff * 12 + mesDiff + 1; // +1 conta o mês inicial
+
+    if (parcelasVencidas < 0) parcelasVencidas = 0;
+    if (p.parcelas && parcelasVencidas > p.parcelas) {
+      parcelasVencidas = p.parcelas;
+    }
+    return parcelasVencidas;
+  };
+
+  // Aplica regras de atraso / status em memória
+  const promissoriasCalculadas = promissorias.map((p) => {
+    const atrasadas = calcularParcelasEmAtraso(p);
+
+    // saldo atual vem direto das colunas de saldo, ou do valor original
+    const saldoAtual = Number(
+      p.saldo_devedor ??
+        p.saldoDevedor ??
+        p.total_em_aberto ??
+        p.totalEmAberto ??
+        p.valor ??
+        p.valor_total ??
+        0
+    );
+
+    const saldo = saldoAtual > 0 ? saldoAtual : 0;
+
+    let statusCalc = p.status || 'ABERTO';
+    if (saldo <= 0) {
+      statusCalc = 'QUITADO';
+    } else if (atrasadas > 0) {
+      statusCalc = 'PENDENTE';
+    } else {
+      statusCalc = 'ABERTO';
+    }
+
+    return {
+      ...p,
+      parcelasAtrasadas: atrasadas,
+      statusCalc,
+      saldoCalc: saldo,
     };
+  });
 
-    // ENVIO REAL DE E-MAIL + WHATSAPP PARA OS SELECIONADOS
-    const enviarEmails = async () => {
-      const selecionados = promissoriasCalculadas.filter((p) => p.selecionado);
-      if (selecionados.length === 0) {
-        alert('Nenhuma promissória selecionada.');
-        return;
-      }
+  // Remove da visualização as já quitadas
+  let listaFiltradaBase = promissoriasCalculadas.filter(
+    (p) => p.statusCalc !== 'QUITADO'
+  );
 
-      setEnviandoEmails(true);
+  // Filtro "somente atrasadas" (sem filtro por nome)
+  const listaFiltrada = listaFiltradaBase.filter((p) => {
+    if (!mostrarSomenteAtrasadas) return true;
+    return p.parcelasAtrasadas > 0;
+  });
 
+  // Selecionar / desmarcar
+  const toggleSelecao = async (index) => {
+    const prom = promissorias[index];
+    if (!prom) return;
+
+    const novoSelecionado = !prom.selecionado;
+
+    setPromissorias((lista) =>
+      lista.map((p, idx) =>
+        idx === index ? { ...p, selecionado: novoSelecionado } : p
+      )
+    );
+
+    if (prom.id) {
       try {
-        for (const p of selecionados) {
-          if (!p.email) {
-            console.warn(`Promissória ${p.nrVenda} sem e-mail cadastrado.`);
-            continue;
-          }
+        const { error } = await supabase
+          .from('promissorias')
+          .update({ selecionado: novoSelecionado })
+          .eq('id', prom.id);
 
-          // evita reenviar se já tiver ícone de carta
-          if (p.email_enviado) continue;
-
-          // 1) enviar e-mail via API
-          await enviarEmailViaApi(p);
-
-          // 2) marcar como enviado (ícone)
-          await marcarEmailComoEnviado(p);
-
-          // 3) abrir WhatsApp (se tiver telefone)
-          if (p.telefone || p.whatsapp) {
-            abrirWhatsapp(p);
-          }
+        if (error) {
+          console.error('Erro ao atualizar seleção da promissória:', error);
         }
-
-        alert('Processo de envio concluído (verifique e-mails/WhatsApp).');
       } catch (e) {
-        console.error(e);
-        alert('Erro ao enviar e-mails. Verifique o console para detalhes.');
-      } finally {
-        setEnviandoEmails(false);
+        console.error('Erro inesperado ao atualizar seleção da promissória:', e);
       }
-    };
+    }
+  };
 
-    // Consolidação por cliente (usa apenas lista filtrada atual)
-    const consolidadoPorCliente = Object.values(
-      listaFiltrada.reduce((acc, p) => {
-        if (!acc[p.cliente]) {
-          acc[p.cliente] = {
-            cliente: p.cliente,
-            email: p.email,
-            total: 0,
-            atrasadas: 0,
-          };
+  // ENVIO REAL DE E-MAIL + WHATSAPP PARA OS SELECIONADOS
+  const enviarEmails = async () => {
+    const selecionados = promissoriasCalculadas.filter((p) => p.selecionado);
+    if (selecionados.length === 0) {
+      alert('Nenhuma promissória selecionada.');
+      return;
+    }
+
+    setEnviandoEmails(true);
+
+    try {
+      for (const p of selecionados) {
+        if (!p.email) {
+          console.warn(`Promissória ${p.nrVenda} sem e-mail cadastrado.`);
+          continue;
         }
-        acc[p.cliente].total += Number(p.valor || 0);
-        acc[p.cliente].atrasadas += Number(p.parcelasAtrasadas || 0);
-        return acc;
-      }, {})
-    );
 
-    // Impressão / PDF (somente o que está filtrado na tela)
-    const imprimirPromissorias = () => {
-      const win = window.open('', '_blank');
-      if (!win) return;
+        // evita reenviar se já tiver ícone de carta
+        if (p.email_enviado) continue;
 
-      const linhasHtml = listaFiltrada
-        .map((p) => {
-          return `
-          <tr>
-            <td style="text-align:center;">${p.nrVenda || ''}</td>
-            <td style="text-align:center;">${p.cliente || ''}</td>
-            <td style="text-align:center;">${p.email || ''}</td>
-            <td style="text-align:center;">${formatarReal(p.valor)}</td>
-            <td style="text-align:center;">
-              ${p.dataInicio ? formatarDataBR(p.dataInicio) : ''}
-            </td>
-            <td style="text-align:center;">${p.parcelas || 0}</td>
-            <td style="text-align:center;">${p.parcelasAtrasadas || 0}</td>
-            <td style="text-align:center;">${p.statusCalc}</td>
-          </tr>
-        `;
-        })
-        .join('');
+        // 1) enviar e-mail via API
+        await enviarEmailViaApi(p);
 
-      const hojeStr = formatarDataBR(new Date().toISOString().slice(0, 10));
+        // 2) marcar como enviado (ícone)
+        await marcarEmailComoEnviado(p);
 
-      win.document.write(`
-        <html>
-          <head>
-            <title>Promissórias</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 16px; }
-              h1 { font-size: 18px; margin-bottom: 4px; text-align:center; }
-              h2 { font-size: 13px; margin-top: 4px; text-align:center; }
-              table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
-              th, td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: center; }
-              th { background: #f3f4f6; }
-            </style>
-          </head>
-          <body>
-            <div style="text-align:center;">
-              <img src="/logo-wolves.png" alt="Logo" style="width:90px;height:90px;object-fit:contain;border-radius:50%;"/>
-              <h1>Promissórias em Aberto</h1>
-              <h2>Emitido em ${hojeStr}</h2>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Nr Venda</th>
-                  <th>Cliente</th>
-                  <th>E-mail</th>
-                  <th>Saldo Devedor</th>
-                  <th>Data inicial de pagamento</th>
-                  <th>Parcelas</th>
-                  <th>Parcelas em atraso</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${
-                  linhasHtml ||
-                  '<tr><td colspan="8">Nenhuma promissória para os filtros atuais.</td></tr>'
-                }
-              </tbody>
-            </table>
-          </body>
-        </html>
-      `);
-      win.document.close();
-      win.print();
-    };
+        // 3) abrir WhatsApp (se tiver telefone)
+        if (p.telefone || p.whatsapp) {
+          abrirWhatsapp(p);
+        }
+      }
 
-    return (
-      <div className="p-6 space-y-6" style={appStyle}>
-        <div className="bg-white rounded-lg shadow p-6">
-          {/* Título + filtros topo */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
-              <p className="text-sm text-gray-600">
-                Selecione as vendas para contato e acompanhe quem está com parcelas atrasadas.
-              </p>
-            </div>
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs md:text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={mostrarSomenteAtrasadas}
-                  onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
-                />
-                Mostrar apenas com parcelas em atraso
-              </label>
-              <div className="flex gap-2">
-                <button
-                  onClick={enviarEmails}
-                  disabled={enviandoEmails}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-xs"
-                >
-                  <Mail className="w-4 h-4" />
-                  {enviandoEmails ? 'Enviando...' : 'e-mails'}
-                </button>
-                <button
-                  onClick={imprimirPromissorias}
-                  className="bg-black hover:bg-gray-900 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                >
-                  ExportarPDF3
-                </button>
-              </div>
+      alert('Processo de envio concluído (verifique e-mails/WhatsApp).');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao enviar e-mails. Verifique o console para detalhes.');
+    } finally {
+      setEnviandoEmails(false);
+    }
+  };
+
+  // Consolidação por cliente (usa apenas lista filtrada atual)
+  const consolidadoPorCliente = Object.values(
+    listaFiltrada.reduce((acc, p) => {
+      if (!acc[p.cliente]) {
+        acc[p.cliente] = {
+          cliente: p.cliente,
+          email: p.email,
+          total: 0,
+          atrasadas: 0,
+        };
+      }
+
+      const saldoCliente =
+        p.saldoCalc ??
+        p.saldo_devedor ??
+        p.saldoDevedor ??
+        p.total_em_aberto ??
+        p.totalEmAberto ??
+        p.valor ??
+        0;
+
+      acc[p.cliente].total += Number(saldoCliente || 0);
+      acc[p.cliente].atrasadas += Number(p.parcelasAtrasadas || 0);
+      return acc;
+    }, {})
+  );
+
+  // Impressão / PDF (somente o que está filtrado na tela)
+  const imprimirPromissorias = () => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    const linhasHtml = listaFiltrada
+      .map((p) => {
+        return `
+        <tr>
+          <td style="text-align:center;">${p.nrVenda || p.nr_venda || ''}</td>
+          <td style="text-align:center;">${p.cliente || ''}</td>
+          <td style="text-align:center;">${p.email || ''}</td>
+          <td style="text-align:center;">${formatarReal(p.saldoCalc ?? p.valor)}</td>
+          <td style="text-align:center;">
+            ${
+              p.dataInicio || p.data_inicio
+                ? formatarDataBR(p.dataInicio || p.data_inicio)
+                : ''
+            }
+          </td>
+          <td style="text-align:center;">${p.parcelas || 0}</td>
+          <td style="text-align:center;">${p.parcelasAtrasadas || 0}</td>
+          <td style="text-align:center;">${p.statusCalc}</td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    const hojeStr = formatarDataBR(new Date().toISOString().slice(0, 10));
+
+    win.document.write(`
+      <html>
+        <head>
+          <title>Promissórias</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; }
+            h1 { font-size: 18px; margin-bottom: 4px; text-align:center; }
+            h2 { font-size: 13px; margin-top: 4px; text-align:center; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
+            th, td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: center; }
+            th { background: #f3f4f6; }
+          </style>
+        </head>
+        <body>
+          <div style="text-align:center;">
+            <img src="/logo-wolves.png" alt="Logo" style="width:90px;height:90px;object-fit:contain;border-radius:50%;"/>
+            <h1>Promissórias em Aberto</h1>
+            <h2>Emitido em ${hojeStr}</h2>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Nr Venda</th>
+                <th>Cliente</th>
+                <th>E-mail</th>
+                <th>Saldo Devedor</th>
+                <th>Data inicial de pagamento</th>
+                <th>Parcelas</th>
+                <th>Parcelas em atraso</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                linhasHtml ||
+                '<tr><td colspan="8">Nenhuma promissória para os filtros atuais.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.print();
+  };
+
+  return (
+    <div className="p-6 space-y-6" style={appStyle}>
+      <div className="bg-white rounded-lg shadow p-6">
+        {/* Título + filtros topo */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-2xl font-bold">Promissórias em Aberto</h2>
+            <p className="text-sm text-gray-600">
+              Selecione as vendas para contato e acompanhe quem está com parcelas atrasadas.
+            </p>
+          </div>
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-2 text-xs md:text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={mostrarSomenteAtrasadas}
+                onChange={(e) => setMostrarSomenteAtrasadas(e.target.checked)}
+              />
+              Mostrar apenas com parcelas em atraso
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={enviarEmails}
+                disabled={enviandoEmails}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-xs"
+              >
+                <Mail className="w-4 h-4" />
+                {enviandoEmails ? 'Enviando...' : 'e-mails'}
+              </button>
+              <button
+                onClick={imprimirPromissorias}
+                className="bg-black hover:bg-gray-900 text-white px-3 py-2 rounded-lg text-xs font-bold"
+              >
+                ExportarPDF3
+              </button>
             </div>
           </div>
+        </div>
 
-          {/* Tabela de promissórias */}
-          <div className="overflow-x-auto text-xs mb-6">
-            <table className="w-full text-[11px]">
+        {/* Tabela de promissórias */}
+        <div className="overflow-x-auto text-xs mb-6">
+          <table className="w-full text-[11px]">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="px-2 py-2 text-center">
+                  <input type="checkbox" disabled />
+                </th>
+                <th className="px-2 py-2 text-center">Nr Venda</th>
+                <th className="px-2 py-2 text-center">Cliente</th>
+                <th className="px-2 py-2 text-center">E-mail</th>
+                <th className="px-2 py-2 text-center">Saldo Devedor</th>
+                <th className="px-2 py-2 text-center">Data inicial de pagamento</th>
+                <th className="px-2 py-2 text-center">Parcelas</th>
+                <th className="px-2 py-2 text-center">Parcelas em atraso</th>
+                <th className="px-2 py-2 text-center">Status</th>
+                <th className="px-2 py-2 text-center">Envio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listaFiltrada.map((prom, idx) => {
+                const indexOriginal = promissorias.findIndex(
+                  (p) =>
+                    (p.nrVenda ?? p.nr_venda) === (prom.nrVenda ?? prom.nr_venda) &&
+                    (p.cliente || '') === (prom.cliente || '')
+                );
+
+                const linhaPendente =
+                  prom.statusCalc === 'PENDENTE' ? 'bg-yellow-100' : '';
+
+                const atrasoClass =
+                  (prom.parcelasAtrasadas || 0) > 0
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-green-100 text-green-800';
+
+                const statusClass =
+                  prom.statusCalc === 'PENDENTE'
+                    ? 'bg-yellow-200 text-yellow-900'
+                    : 'bg-blue-100 text-blue-800';
+
+                return (
+                  <tr
+                    key={idx}
+                    className={`border-b hover:bg-gray-50 ${linhaPendente}`}
+                  >
+                    <td className="px-2 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        checked={prom.selecionado || false}
+                        onChange={() => toggleSelecao(indexOriginal)}
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-center font-semibold">
+                      {prom.nrVenda || prom.nr_venda}
+                    </td>
+                    <td className="px-2 py-1 text-center">{prom.cliente}</td>
+                    <td className="px-2 py-1 text-center text-[10px] text-gray-600">
+                      {prom.email}
+                    </td>
+                    <td className="px-2 py-1 text-center font-semibold">
+                      {formatarReal(prom.saldoCalc ?? prom.valor)}
+                    </td>
+
+                    <td className="px-2 py-1 text-center">
+                      {prom.dataInicio || prom.data_inicio
+                        ? formatarDataBR(prom.dataInicio || prom.data_inicio)
+                        : ''}
+                    </td>
+                    <td className="px-2 py-1 text-center">{prom.parcelas}</td>
+                    <td className="px-2 py-1 text-center">
+                      <span className={`px-2 py-1 rounded text-[10px] ${atrasoClass}`}>
+                        {prom.parcelasAtrasadas}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <span className={`px-2 py-1 rounded text-[10px] ${statusClass}`}>
+                        {prom.statusCalc}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      {prom.email_enviado ? (
+                        <Mail className="inline-block w-4 h-4 text-blue-600" />
+                      ) : (
+                        <span className="text-[10px] text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {listaFiltrada.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={10}
+                    className="px-3 py-4 text-center text-[11px] text-gray-500"
+                  >
+                    Nenhuma promissória encontrada com os filtros atuais.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Consolidação por cliente */}
+        <div>
+          <h3 className="text-lg font-semibold mb-2">
+            Consolidação por Cliente (somente filtrados acima)
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] md:text-xs border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-2 py-2 text-center">
-                    <input type="checkbox" disabled />
-                  </th>
-                  <th className="px-2 py-2 text-center">Nr Venda</th>
-                  <th className="px-2 py-2 text-center">Cliente</th>
-                  <th className="px-2 py-2 text-center">E-mail</th>
-                  <th className="px-2 py-2 text-center">Saldo Devedor</th>
-                  <th className="px-2 py-2 text-center">Data inicial de pagamento</th>
-                  <th className="px-2 py-2 text-center">Parcelas</th>
-                  <th className="px-2 py-2 text-center">Parcelas em atraso</th>
-                  <th className="px-2 py-2 text-center">Status</th>
-                  <th className="px-2 py-2 text-center">Envio</th>
+                  <th className="px-3 py-2 text-center">Cliente</th>
+                  <th className="px-3 py-2 text-center">E-mail</th>
+                  <th className="px-3 py-2 text-center">Total em aberto</th>
+                  <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
                 </tr>
               </thead>
               <tbody>
-                {listaFiltrada.map((prom, idx) => {
-                  const indexOriginal = promissorias.findIndex(
-                    (p) =>
-                      p.nrVenda === prom.nrVenda && p.cliente === prom.cliente
-                  );
-
-                  const linhaPendente =
-                    prom.statusCalc === 'PENDENTE' ? 'bg-yellow-100' : '';
-
-                  const atrasoClass =
-                    (prom.parcelasAtrasadas || 0) > 0
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-green-100 text-green-800';
-
-                  const statusClass =
-                    prom.statusCalc === 'PENDENTE'
-                      ? 'bg-yellow-200 text-yellow-900'
-                      : 'bg-blue-100 text-blue-800';
-
-                  return (
-                    <tr
-                      key={idx}
-                      className={`border-b hover:bg-gray-50 ${linhaPendente}`}
-                    >
-                      <td className="px-2 py-1 text-center">
-                        <input
-                          type="checkbox"
-                          checked={prom.selecionado || false}
-                          onChange={() => toggleSelecao(indexOriginal)}
-                        />
-                      </td>
-                      <td className="px-2 py-1 text-center font-semibold">
-                        {prom.nrVenda}
-                      </td>
-                      <td className="px-2 py-1 text-center">{prom.cliente}</td>
-                      <td className="px-2 py-1 text-center text-[10px] text-gray-600">
-                        {prom.email}
-                      </td>
-                      <td className="px-2 py-1 text-center font-semibold">
-                        {formatarReal(prom.valor)}
-                      </td>
-                      <td className="px-2 py-1 text-center">
-                        {prom.dataInicio ? formatarDataBR(prom.dataInicio) : ''}
-                      </td>
-                      <td className="px-2 py-1 text-center">{prom.parcelas}</td>
-                      <td className="px-2 py-1 text-center">
-                        <span className={`px-2 py-1 rounded text-[10px] ${atrasoClass}`}>
-                          {prom.parcelasAtrasadas}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1 text-center">
-                        <span className={`px-2 py-1 rounded text-[10px] ${statusClass}`}>
-                          {prom.statusCalc}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1 text-center">
-                        {prom.email_enviado ? (
-                          <Mail className="inline-block w-4 h-4 text-blue-600" />
-                        ) : (
-                          <span className="text-[10px] text-gray-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {listaFiltrada.length === 0 && (
+                {consolidadoPorCliente.map((c, idx) => (
+                  <tr key={idx} className="border-t">
+                    <td className="px-3 py-1 text-center">{c.cliente}</td>
+                    <td className="px-3 py-1 text-center text-[10px]">
+                      {c.email}
+                    </td>
+                    <td className="px-3 py-1 text-center font-semibold">
+                      {formatarReal(c.total)}
+                    </td>
+                    <td className="px-3 py-1 text-center">{c.atrasadas}</td>
+                  </tr>
+                ))}
+                {consolidadoPorCliente.length === 0 && (
                   <tr>
                     <td
-                      colSpan={10}
-                      className="px-3 py-4 text-center text-[11px] text-gray-500"
+                      colSpan={4}
+                      className="px-3 py-3 text-center text-[11px] text-gray-500"
                     >
-                      Nenhuma promissória encontrada com os filtros atuais.
+                      Nenhuma promissória para consolidar com os filtros atuais.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-
-          {/* Consolidação por cliente */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">
-              Consolidação por Cliente (somente filtrados acima)
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-[11px] md:text-xs border border-gray-300">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="px-3 py-2 text-center">Cliente</th>
-                    <th className="px-3 py-2 text-center">E-mail</th>
-                    <th className="px-3 py-2 text-center">Total em aberto</th>
-                    <th className="px-3 py-2 text-center">Parcelas em Atraso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidadoPorCliente.map((c, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="px-3 py-1 text-center">{c.cliente}</td>
-                      <td className="px-3 py-1 text-center text-[10px]">
-                        {c.email}
-                      </td>
-                      <td className="px-3 py-1 text-center font-semibold">
-                        {formatarReal(c.total)}
-                      </td>
-                      <td className="px-3 py-1 text-center">{c.atrasadas}</td>
-                    </tr>
-                  ))}
-                  {consolidadoPorCliente.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-3 text-center text-[11px] text-gray-500"
-                      >
-                        Nenhuma promissória para consolidar com os filtros atuais.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 // ========================================================================
 // TELA PAGAMENTO (PROMISSÓRIAS)
 // ========================================================================
@@ -4598,19 +4669,11 @@ const TelaPagamentoPromissorias = () => {
   const promissoriaSelecionada = useMemo(() => {
     if (!form.nrVenda) return null;
 
-    const nrForm = String(form.nrVenda || '');
+    const idSel = Number(form.nrVenda);
+    if (!idSel) return null;
 
     return (
-      listaPromissorias.find((p) => {
-        const nrRaw =
-          p.nr_venda != null
-            ? p.nr_venda
-            : p.nrVenda != null
-            ? p.nrVenda
-            : '';
-        const nr = String(nrRaw || '');
-        return nr === nrForm;
-      }) || null
+      listaPromissorias.find((p) => Number(p.id) === idSel) || null
     );
   }, [form.nrVenda, listaPromissorias]);
 
@@ -4642,16 +4705,21 @@ const TelaPagamentoPromissorias = () => {
         0,
     );
 
-    const nrForm = String(form.nrVenda || '');
+    const nrRef =
+      promissoriaSelecionada.nr_venda ??
+      promissoriaSelecionada.nrVenda ??
+      '';
 
-    // Soma de todos os pagamentos já registrados para este Nr Venda
     const totalPago = listaPagamentos
-      .filter((p) => String(p.nr_venda || '') === nrForm)
+      .filter((p) => {
+        const nrPag = p.nr_venda ?? p.nrVenda ?? '';
+        return String(nrPag) === String(nrRef);
+      })
       .reduce((acc, p) => acc + Number(p.valor_pago || 0), 0);
 
     const saldo = valorOriginal - totalPago;
     return saldo > 0 ? saldo : 0;
-  }, [promissoriaSelecionada, listaPagamentos, form.nrVenda]);
+  }, [promissoriaSelecionada, listaPagamentos]);
 
   const valorPagoNum = Number(form.valorPago || 0);
   const saldoFinal =
@@ -4705,9 +4773,14 @@ const TelaPagamentoPromissorias = () => {
 
     try {
       // 1) REGISTRA O PAGAMENTO NA TABELA pagamentos_promissorias
+      const nrRef =
+        promissoriaSelecionada.nr_venda ??
+        promissoriaSelecionada.nrVenda ??
+        '';
+
       const insertData = {
         data_pagamento: form.data,
-        nr_venda: form.nrVenda,
+        nr_venda: nrRef,
         forma_pagamento: form.forma,
         parcelas_atrasadas: parcelasAtrasadas,
         cliente: cliente,
@@ -4727,7 +4800,7 @@ const TelaPagamentoPromissorias = () => {
         return;
       }
 
-      // 2) ATUALIZA PROMISSÓRIAS COM NOVO SALDO (se tiver colunas de saldo)
+      // 2) ATUALIZA PROMISSÓRIAS COM NOVO SALDO (no banco)
       if (promissoriaSelecionada.id != null) {
         const { error: errUpdProm } = await supabase
           .from('promissorias')
@@ -4756,7 +4829,42 @@ const TelaPagamentoPromissorias = () => {
         }
       }
 
-      // Recarrega listas e limpa o formulário
+      // 2b) ATUALIZA O ESTADO GLOBAL "promissorias" (usado na TelaPromissorias)
+      setPromissorias((lista) => {
+        const idSel = promissoriaSelecionada.id;
+        const nrRefLocal =
+          promissoriaSelecionada.nr_venda ??
+          promissoriaSelecionada.nrVenda ??
+          '';
+        const cliLocal = cliente || '';
+
+        return lista
+          .map((p) => {
+            const mesmoId = idSel != null && p.id === idSel;
+            const mesmoNrCli =
+              String(p.nr_venda ?? p.nrVenda ?? '') === String(nrRefLocal) &&
+              (p.cliente || '') === cliLocal;
+
+            if (!mesmoId && !mesmoNrCli) return p;
+
+            // se saldoFinal zerou, removemos da lista
+            if (saldoFinal <= 0.000001) {
+              return null;
+            }
+
+            return {
+              ...p,
+              saldo_devedor: saldoFinal,
+              saldoDevedor: saldoFinal,
+              total_em_aberto: saldoFinal,
+              totalEmAberto: saldoFinal,
+              valor: saldoFinal, // mantém alinhado com o que é exibido
+            };
+          })
+          .filter(Boolean);
+      });
+
+      // Recarrega listas locais e limpa o formulário
       await carregarPromissorias();
       await carregarPagamentos();
 
@@ -4833,7 +4941,7 @@ const TelaPagamentoPromissorias = () => {
                     : '';
                 const cli = p.cliente || p.nome_cliente || '';
                 return (
-                  <option key={p.id} value={nr}>
+                  <option key={p.id} value={String(p.id)}>
                     {nr} {cli ? `- ${cli}` : ''}
                   </option>
                 );
@@ -5052,6 +5160,7 @@ const TelaPagamentoPromissorias = () => {
     </div>
   );
 };
+
   
   // ======================================================================
   // TELA DE USUÁRIOS (APENAS ADM)
